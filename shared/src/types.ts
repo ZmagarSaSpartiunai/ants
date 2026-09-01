@@ -164,6 +164,18 @@ export const UNSUPPLIED_GROWTH = 0.35;
  *  trail cannot be worn down in unattended nibbles. */
 export const CHEW_DECAY = 2.5;
 
+/**
+ * How long the ground stays torn up where a trail was gnawed through.
+ *
+ * Without it the whole mechanic is pointless: you spend six seconds standing
+ * still and exposed to break a supply line, and the owner redraws it in the
+ * next instant. The scar is what turns those six seconds into something won.
+ *
+ * It also closes the obvious dodge -- letting go of a trail that is being
+ * gnawed and immediately redrawing it counts as severed too.
+ */
+export const SEVERED_TICKS = TICK_HZ * 5;
+
 export interface GameNode {
   id: number;
   x: number;
@@ -229,6 +241,14 @@ export interface PlayerState {
   chewing: number;
 }
 
+/** A connection that was cut and cannot be redrawn yet. */
+export interface Severed {
+  owner: number;
+  from: number;
+  to: number;
+  until: number;
+}
+
 export interface GameState {
   tick: number;
   /** Serializable PRNG cursor, so a snapshot restores the exact stream. */
@@ -239,6 +259,8 @@ export interface GameState {
   players: PlayerState[];
   /** Recomputed every tick: node id -> supplied. */
   supplied: boolean[];
+  /** Connections still healing from being gnawed through. */
+  severed: Severed[];
   nextTrailId: number;
   over: boolean;
   winner: number;

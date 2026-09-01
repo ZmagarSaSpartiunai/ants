@@ -51,6 +51,7 @@ export class App {
       trails: this.state?.trails,
       packets: this.state?.packets.length,
       supplied: this.state?.supplied,
+      severed: this.state?.severed,
       over: this.state?.over,
       tick: this.state?.tick,
       toWorld: (x: number, y: number) => this.renderer.toWorld(x, y),

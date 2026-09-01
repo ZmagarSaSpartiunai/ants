@@ -1,4 +1,13 @@
-import { blockedBy, canLink, Command, GameState, KINDS, linksFree, NEUTRAL } from '@ants/shared';
+import {
+  blockedBy,
+  canLink,
+  Command,
+  GameState,
+  KINDS,
+  linksFree,
+  NEUTRAL,
+  severedFor,
+} from '@ants/shared';
 import { DragPreview, Renderer } from './render.js';
 
 /**
@@ -129,6 +138,8 @@ export class Input {
       this.host.hint('hintOwn');
     } else if (linksFree(s, drag.fromNode) === 0) {
       this.host.hint('hintNodeFull');
+    } else if (severedFor(s, this.host.you(), drag.fromNode, target.id) > 0) {
+      this.host.hint('hintSevered');
     } else if (blockedBy(s, drag.fromNode, target.id)) {
       this.host.hint('hintBlocked');
     } else {

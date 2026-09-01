@@ -17,6 +17,8 @@ import {
   noUnits,
   PlayerState,
   TICK_HZ,
+  Severed,
+  SEVERED_TICKS,
   SPEED_FROM_STRENGTH,
   SPEED_FULL_AT,
   Trail,
@@ -52,6 +54,7 @@ export function createGame(seed: number, playerCount: number): GameState {
     packets: [],
     players,
     supplied: nodes.map(() => false),
+    severed: [],
     nextTrailId: 1,
     over: false,
     winner: NEUTRAL,
@@ -67,6 +70,7 @@ export function cloneState(s: GameState): GameState {
     packets: s.packets.map((p) => ({ ...p })),
     players: s.players.map((p) => ({ ...p })),
     supplied: s.supplied.slice(),
+    severed: s.severed.map((x) => ({ ...x })),
     nextTrailId: s.nextTrailId,
     over: s.over,
     winner: s.winner,
@@ -133,6 +137,15 @@ export function blockedBy(s: GameState, fromId: number, toId: number): GameNode 
   return undefined;
 }
 
+/** Ticks left before this connection may be redrawn, or 0 if it is free. */
+export function severedFor(s: GameState, owner: number, from: number, to: number): number {
+  for (const x of s.severed) {
+    if (x.owner === owner && x.from === from && x.to === to) return Math.max(0, x.until - s.tick);
+  }
+
+  return 0;
+}
+
 export function canLink(s: GameState, p: number, fromId: number, toId: number): boolean {
   if (s.over) return false;
   const player = s.players[p];
@@ -144,6 +157,8 @@ export function canLink(s: GameState, p: number, fromId: number, toId: number): 
   if (!from || !to || from.id === to.id) return false;
   if (from.owner !== p) return false;
   if (s.trails.some((t) => t.owner === p && t.from === fromId && t.to === toId)) return false;
+  // The ground is still torn up where this one was bitten through.
+  if (severedFor(s, p, fromId, toId) > 0) return false;
   // How many trails a node can feed is the limit that runs out. Distance is
   // not a limit at all.
   if (outgoing(s, fromId) >= KINDS[from.kind].links) return false;
@@ -199,7 +214,9 @@ export function applyCommand(s: GameState, cmd: Command): boolean {
     if (player.chewing !== -1) return false;
     const i = s.trails.findIndex((t) => t.id === cmd.trail && t.owner === cmd.p);
     if (i < 0) return false;
-    s.trails.splice(i, 1);
+    // Pulling a trail that is already being gnawed and redrawing it would undo
+    // the attacker's work for free, so it scars exactly as a bitten one does.
+    dropTrail(s, i, s.trails[i].chew > 0.5);
 
     return true;
   }
@@ -257,12 +274,21 @@ function recomputeSupply(s: GameState): void {
   }
 }
 
-function dropTrail(s: GameState, index: number): void {
+function dropTrail(s: GameState, index: number, severed = false): void {
   const t = s.trails[index];
   s.trails.splice(index, 1);
   for (const p of s.players) {
     if (p.chewing === t.id) p.chewing = -1;
   }
+  if (severed) scar(s, t);
+}
+
+/** Marks this connection as torn up, so it cannot be redrawn immediately. */
+function scar(s: GameState, t: Trail): void {
+  const until = s.tick + SEVERED_TICKS;
+  const existing = s.severed.find((x) => x.owner === t.owner && x.from === t.from && x.to === t.to);
+  if (existing) existing.until = Math.max(existing.until, until);
+  else s.severed.push({ owner: t.owner, from: t.from, to: t.to, until });
 }
 
 export function step(s: GameState): SimEvent[] {
@@ -276,6 +302,7 @@ export function step(s: GameState): SimEvent[] {
     if (!from || from.owner !== s.trails[i].owner) dropTrail(s, i);
   }
 
+  if (s.severed.length) s.severed = s.severed.filter((x) => x.until > s.tick);
   recomputeSupply(s);
   grow(s);
   chew(s, events);
@@ -335,7 +362,7 @@ function chew(s: GameState, events: SimEvent[]): void {
       x: (a.x + b.x) / 2,
       y: (a.y + b.y) / 2,
     });
-    dropTrail(s, i);
+    dropTrail(s, i, true);
   }
 }
 

@@ -12,7 +12,7 @@ import {
   Trail,
   UNITS,
 } from '@ants/shared';
-import { alpha, playerColor, shade, TILT, tint } from './theme.js';
+import { alpha, mix, playerColor, shade, SOIL_LIGHT, SOIL_MID, TILT, tint } from './theme.js';
 import { buildMeadow } from './ground.js';
 import { drawCreature } from './creatures.js';
 import { drawStructure } from './structures.js';
@@ -155,6 +155,7 @@ export class Renderer {
     ctx.drawImage(this.meadow, 0, 0);
 
     if (drag) this.drawBlocker(s, you, drag);
+    this.drawScars(s);
     for (const t of s.trails) this.drawTrack(s, t);
     for (const p of pending) this.drawPending(s, p.from, p.to);
     if (drag) this.drawDrag(s, drag);
@@ -205,6 +206,35 @@ export class Renderer {
     ctx.restore();
   }
 
+  /**
+   * Ground still torn up where a trail was bitten through. Shown because the
+   * five seconds it costs are the reward for gnawing, and a rule nobody can see
+   * feels like the game refusing them for no reason.
+   */
+  private drawScars(s: GameState): void {
+    const ctx = this.ctx;
+    for (const x of s.severed) {
+      const a = s.nodes[x.from];
+      const b = s.nodes[x.to];
+      if (!a || !b) continue;
+      const left = Math.max(0, (x.until - s.tick) / 100);
+      ctx.save();
+      ctx.setLineDash([6, 12]);
+      ctx.lineCap = 'butt';
+      ctx.lineWidth = 9;
+      // Fades as the ground recovers, so the wait is legible without a number.
+      ctx.strokeStyle = `rgba(38,24,14,${0.15 + 0.4 * left})`;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+      ctx.strokeStyle = alpha(playerColor(x.owner), 0.15 + 0.25 * left);
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   /** A trail is a track worn into the grass, not a drawn line. */
   private drawTrack(s: GameState, t: Trail): void {
     const ctx = this.ctx;
@@ -240,21 +270,23 @@ export class Renderer {
       ctx.lineTo(b.x + nx, b.y + ny);
     };
 
-    // Bare earth, its shaded edge, then the owner's colour breathed over it.
-    ctx.strokeStyle = 'rgba(26,18,10,0.5)';
+    // Worn earth, but unmistakably somebody's. Whose trail is which matters
+    // more than realism here: on a crowded board you have to read ownership
+    // without following the ants along it.
+    ctx.strokeStyle = alpha(shade(color, 0.22), 0.75);
     ctx.lineWidth = 15;
     line();
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(104,80,52,0.88)';
+    ctx.strokeStyle = mix(SOIL_MID, color, 0.55);
     ctx.lineWidth = 11;
     line();
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(142,114,76,0.6)';
+    ctx.strokeStyle = alpha(mix(SOIL_LIGHT, color, 0.62), 0.85);
     ctx.lineWidth = 6;
     line();
     ctx.stroke();
-    ctx.strokeStyle = alpha(color, 0.32);
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = alpha(tint(color, 0.35), 0.7);
+    ctx.lineWidth = 2.5;
     line();
     ctx.stroke();
 

@@ -9,6 +9,7 @@ import {
   distance,
   linksFree,
   outputRate,
+  severedFor,
   step,
   trailById,
 } from './sim.js';
@@ -562,4 +563,59 @@ test('beetles keep pace with the ants, wasps fly half again as fast', () => {
   const at = (unit: string) => s.packets.find((p) => p.unit === unit)!.pos;
   assert.ok(Math.abs(at('worker') - at('beetle')) < 1e-9, 'ant and beetle must stay level');
   assert.ok(at('wasp') > at('worker') * 1.4, 'the wasp must be well ahead');
+});
+
+test('a gnawed trail leaves ground that cannot be rebuilt at once', () => {
+  const s = createGame(555, 2);
+  const mine = s.nodes[s.players[0].home];
+  mine.count = 40;
+  const to = s.nodes.find((n) => n.id !== mine.id && canLink(s, 0, mine.id, n.id))!;
+  assert.ok(applyCommand(s, { t: 'link', p: 0, from: mine.id, to: to.id }));
+  const trail = s.trails[0];
+
+  // Player 1 gnaws it through.
+  assert.ok(applyCommand(s, { t: 'chew', p: 1, trail: trail.id }));
+  let snapped = false;
+  for (let i = 0; i < TICK_HZ * 15 && !snapped; i++) {
+    for (const e of step(s)) if (e.t === 'snap') snapped = true;
+  }
+  assert.ok(snapped, 'the trail should have been bitten through');
+  assert.equal(s.trails.length, 0);
+
+  // The whole point: it cannot simply be redrawn.
+  assert.equal(canLink(s, 0, mine.id, to.id), false, 'torn ground must refuse a new trail');
+  assert.ok(severedFor(s, 0, mine.id, to.id) > 0, 'and it must say how long for');
+
+  // Somewhere else is still fine, and so is the other direction.
+  const other = s.nodes.find((n) => n.id !== mine.id && n.id !== to.id && canLink(s, 0, mine.id, n.id));
+  assert.ok(other, 'other connections are unaffected');
+
+  run(s, 6);
+  assert.ok(canLink(s, 0, mine.id, to.id), 'and after five seconds it heals');
+  assert.equal(s.severed.length, 0, 'healed scars must not pile up in the state');
+});
+
+test('letting go of a trail under the tooth scars it too', () => {
+  const s = createGame(555, 2);
+  const mine = s.nodes[s.players[0].home];
+  mine.count = 40;
+  const to = s.nodes.find((n) => n.id !== mine.id && canLink(s, 0, mine.id, n.id))!;
+  assert.ok(applyCommand(s, { t: 'link', p: 0, from: mine.id, to: to.id }));
+  const trail = s.trails[0];
+  assert.ok(applyCommand(s, { t: 'chew', p: 1, trail: trail.id }));
+  run(s, 1);
+  assert.ok(trail.chew > 0.5, 'the gnawing must have got going');
+
+  // Dropping it and redrawing would otherwise undo the attacker's work for free.
+  assert.ok(applyCommand(s, { t: 'unlink', p: 0, trail: trail.id }));
+  assert.equal(canLink(s, 0, mine.id, to.id), false, 'a trail abandoned under the tooth scars');
+});
+
+test('retiring an untouched trail is free', () => {
+  const s = createGame(555, 2);
+  const mine = s.nodes[s.players[0].home];
+  const to = s.nodes.find((n) => n.id !== mine.id && canLink(s, 0, mine.id, n.id))!;
+  assert.ok(applyCommand(s, { t: 'link', p: 0, from: mine.id, to: to.id }));
+  assert.ok(applyCommand(s, { t: 'unlink', p: 0, trail: s.trails[0].id }));
+  assert.ok(canLink(s, 0, mine.id, to.id), 'changing your mind must cost nothing');
 });
