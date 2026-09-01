@@ -2,6 +2,7 @@ import {
   ATTACK_EDGE,
   CAPTURE_FOOTHOLD,
   CHEW_BASE,
+  CHEW_COOLDOWN,
   CHEW_DECAY,
   CHEW_MAX,
   CHEW_PER_UNIT,
@@ -43,7 +44,7 @@ export function createGame(seed: number, playerCount: number): GameState {
   const { nodes, homes } = generateMap(seed, playerCount);
   const players: PlayerState[] = [];
   for (let i = 0; i < playerCount; i++) {
-    players.push({ id: i, alive: true, home: homes[i], chewing: -1 });
+    players.push({ id: i, alive: true, home: homes[i], chewing: -1, chewReadyAt: 0 });
   }
 
   return {
@@ -135,6 +136,13 @@ export function blockedBy(s: GameState, fromId: number, toId: number): GameNode 
   }
 
   return undefined;
+}
+
+/** Ticks left before this player may start gnawing again, or 0 if ready. */
+export function chewReadyIn(s: GameState, player: number): number {
+  const p = s.players[player];
+
+  return p ? Math.max(0, p.chewReadyAt - s.tick) : 0;
 }
 
 /** Ticks left before this connection may be redrawn, or 0 if it is free. */
@@ -230,6 +238,7 @@ export function applyCommand(s: GameState, cmd: Command): boolean {
     const t = trailById(s, cmd.trail);
     // Air routes are immune: the counter to wasps is taking the hive itself.
     if (!t || t.owner === cmd.p || t.air) return false;
+    if (s.tick < player.chewReadyAt) return false;
     player.chewing = t.id;
 
     return true;
@@ -279,6 +288,13 @@ function dropTrail(s: GameState, index: number, severed = false): void {
   s.trails.splice(index, 1);
   for (const p of s.players) {
     if (p.chewing === t.id) p.chewing = -1;
+  }
+  // Everyone who was walking it goes with it. The path is the ground they were
+  // on; without this a column kept marching along a line that is not there any
+  // more, and breaking a supply line cost the enemy nothing they had already
+  // sent.
+  for (const p of s.packets) {
+    if (p.owner === t.owner && p.from === t.from && p.to === t.to) p.dead = true;
   }
   if (severed) scar(s, t);
 }
@@ -355,6 +371,7 @@ function chew(s: GameState, events: SimEvent[]): void {
     const a = s.nodes[t.from];
     const b = s.nodes[t.to];
     const by = s.players.find((p) => p.chewing === t.id);
+    if (by) by.chewReadyAt = s.tick + CHEW_COOLDOWN;
     events.push({
       t: 'snap',
       trail: t.id,

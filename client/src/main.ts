@@ -4,6 +4,7 @@ import {
   Bot,
   BotLevel,
   Command,
+  chewReadyIn,
   createGame,
   DT,
   GameState,
@@ -428,8 +429,13 @@ export class App {
     // quarter of a board that is already small. iOS Safari has no such API, so
     // the button only appears where it would actually work.
     const canFull = !!document.documentElement.requestFullscreen;
+    // The wait between bites belongs up here: it is invisible on the board, and
+    // without it a held finger simply does nothing for no apparent reason.
+    const wait = chewReadyIn(s, this.youId) / 20;
+    const jaws = wait > 0 ? `<div class="pip urgent" title="${t('jaws')}">✂ ${wait.toFixed(1)}</div>` : '';
     const html =
       `<div class="pips">${pips}</div>` +
+      jaws +
       `<button id="legendBtn" class="icon-btn" title="${t('legend')}">i</button>` +
       (canFull ? `<button id="fullBtn" class="icon-btn" title="${t('fullscreen')}">⛶</button>` : '') +
       `<button id="menuBtn">${t('menu')}</button>`;

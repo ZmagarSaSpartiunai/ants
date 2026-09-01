@@ -176,6 +176,16 @@ export const CHEW_DECAY = 2.5;
  */
 export const SEVERED_TICKS = TICK_HZ * 5;
 
+/**
+ * How long a player must wait between one set of jaws and the next.
+ *
+ * Gnawing is the answer to a stronger opponent, so it has to cost something
+ * besides the seconds spent holding still. Without a wait, a player who is
+ * behind can simply live on the enemy's supply lines, cutting one after
+ * another for as long as they can find them.
+ */
+export const CHEW_COOLDOWN = TICK_HZ * 4;
+
 export interface GameNode {
   id: number;
   x: number;
@@ -239,6 +249,8 @@ export interface PlayerState {
   home: number;
   /** Trail being gnawed, or -1. While gnawing the player may do nothing else. */
   chewing: number;
+  /** Tick from which this player may start gnawing again. */
+  chewReadyAt: number;
 }
 
 /** A connection that was cut and cannot be redrawn yet. */

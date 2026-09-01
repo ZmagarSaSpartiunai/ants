@@ -51,6 +51,8 @@ const EN: Dict = {
   shareCode: 'Read the code out to a friend, or tap to copy',
   fullscreen: 'Fullscreen',
   hintSevered: 'The ground here is torn up — wait for it to settle',
+  hintJaws: 'Your jaws need a moment',
+  jaws: 'Jaws',
 };
 
 const UK: Dict = {
@@ -102,6 +104,8 @@ const UK: Dict = {
   shareCode: 'Продиктуй код другові або тицьни, щоб скопіювати',
   fullscreen: 'На весь екран',
   hintSevered: 'Тут земля розрита — зачекай, поки осяде',
+  hintJaws: 'Щелепи ще не готові',
+  jaws: 'Щелепи',
 };
 
 const PL: Dict = {
@@ -132,6 +136,8 @@ const PL: Dict = {
   shareCode: 'Podyktuj kod znajomemu lub dotknij, aby skopiować',
   fullscreen: 'Pełny ekran',
   hintSevered: 'Ziemia tu jest rozryta — poczekaj, aż osiądzie',
+  hintJaws: 'Szczęki potrzebują chwili',
+  jaws: 'Szczęki',
 };
 
 const DE: Dict = {
@@ -162,6 +168,8 @@ const DE: Dict = {
   shareCode: 'Sag den Code einem Freund oder tippe zum Kopieren',
   fullscreen: 'Vollbild',
   hintSevered: 'Der Boden ist hier aufgerissen — warte, bis er sich setzt',
+  hintJaws: 'Deine Kiefer brauchen einen Moment',
+  jaws: 'Kiefer',
 };
 
 const ES: Dict = {
@@ -192,6 +200,8 @@ const ES: Dict = {
   shareCode: 'Dicta el código a un amigo o toca para copiar',
   fullscreen: 'Pantalla completa',
   hintSevered: 'Aquí la tierra está removida — espera a que se asiente',
+  hintJaws: 'Tus mandíbulas necesitan un momento',
+  jaws: 'Mandíbulas',
 };
 
 const PT: Dict = {
@@ -222,6 +232,8 @@ const PT: Dict = {
   shareCode: 'Dita o código a um amigo ou toca para copiar',
   fullscreen: 'Ecrã inteiro',
   hintSevered: 'Aqui a terra está revolvida — espera que assente',
+  hintJaws: 'As tuas mandíbulas precisam de um momento',
+  jaws: 'Mandíbulas',
 };
 
 export const LANGS: Record<string, { name: string; dict: Dict }> = {

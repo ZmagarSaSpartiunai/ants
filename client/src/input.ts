@@ -4,6 +4,7 @@ import {
   Command,
   GameState,
   KINDS,
+  chewReadyIn,
   linksFree,
   NEUTRAL,
   severedFor,
@@ -74,6 +75,11 @@ export class Input {
     if (trail.air) {
       // Silence here reads as a bug. Say why this one cannot be cut.
       this.host.hint('hintAir');
+
+      return;
+    }
+    if (chewReadyIn(s, this.host.you()) > 0) {
+      this.host.hint('hintJaws');
 
       return;
     }

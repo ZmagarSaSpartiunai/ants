@@ -5,6 +5,7 @@ import {
   applyCommand,
   blockedBy,
   canLink,
+  chewReadyIn,
   createGame,
   distance,
   linksFree,
@@ -618,4 +619,57 @@ test('retiring an untouched trail is free', () => {
   assert.ok(applyCommand(s, { t: 'link', p: 0, from: mine.id, to: to.id }));
   assert.ok(applyCommand(s, { t: 'unlink', p: 0, trail: s.trails[0].id }));
   assert.ok(canLink(s, 0, mine.id, to.id), 'changing your mind must cost nothing');
+});
+
+test('breaking a trail kills everyone walking it, and only them', () => {
+  const s = createGame(555, 2);
+  const mine = s.nodes[s.players[0].home];
+  mine.count = 120;
+  const targets = s.nodes.filter((n) => n.id !== mine.id && canLink(s, 0, mine.id, n.id)).slice(0, 2);
+  assert.equal(targets.length, 2, 'the test needs two reachable targets');
+  for (const t of targets) assert.ok(applyCommand(s, { t: 'link', p: 0, from: mine.id, to: t.id }));
+  const doomed = s.trails[0];
+  const spared = s.trails[1];
+
+  run(s, 4);
+  const on = (t: typeof doomed) =>
+    s.packets.filter((p) => !p.dead && p.from === t.from && p.to === t.to && p.owner === t.owner).length;
+  assert.ok(on(doomed) > 2, `the trail should be busy before it is cut, had ${on(doomed)}`);
+  assert.ok(on(spared) > 2, 'and so should its neighbour');
+
+  assert.ok(applyCommand(s, { t: 'chew', p: 1, trail: doomed.id }));
+  let snapped = false;
+  for (let i = 0; i < TICK_HZ * 15 && !snapped; i++) {
+    for (const e of step(s)) if (e.t === 'snap') snapped = true;
+  }
+  assert.ok(snapped, 'the trail should have been bitten through');
+  assert.equal(on(doomed), 0, 'the column on the broken trail must be gone');
+  assert.ok(on(spared) > 0, 'the column on the neighbouring trail must not be');
+});
+
+test('a player may only bite through one trail every four seconds', () => {
+  const s = createGame(555, 2);
+  const mine = s.nodes[s.players[0].home];
+  mine.count = 90;
+  const targets = s.nodes.filter((n) => n.id !== mine.id && canLink(s, 0, mine.id, n.id)).slice(0, 2);
+  assert.equal(targets.length, 2, 'the test needs two reachable targets');
+  for (const t of targets) assert.ok(applyCommand(s, { t: 'link', p: 0, from: mine.id, to: t.id }));
+  const [first, second] = s.trails;
+
+  assert.ok(applyCommand(s, { t: 'chew', p: 1, trail: first.id }));
+  let snapped = false;
+  for (let i = 0; i < TICK_HZ * 15 && !snapped; i++) {
+    for (const e of step(s)) if (e.t === 'snap') snapped = true;
+  }
+  assert.ok(snapped);
+  assert.ok(chewReadyIn(s, 1) > 0, 'the jaws need a moment');
+  assert.equal(
+    applyCommand(s, { t: 'chew', p: 1, trail: second.id }),
+    false,
+    'no cutting one line straight after another',
+  );
+
+  run(s, 5);
+  assert.equal(chewReadyIn(s, 1), 0);
+  assert.ok(applyCommand(s, { t: 'chew', p: 1, trail: second.id }), 'and after four seconds, ready again');
 });
