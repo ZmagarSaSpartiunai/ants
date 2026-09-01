@@ -411,7 +411,10 @@ test('damage adds up: three streams hurt three times as much as one', () => {
       }
     };
 
-    hold(10);
+    // Long enough for the trail to fill end to end: at walking pace the first
+    // ant needs well over ten seconds to cross, and measuring before the
+    // pipeline is full reads as though production had gone missing.
+    hold(30);
     assert.equal(target.owner, 1, 'the target must still be holding when measured');
     for (const a of attackers) assert.ok(s.supplied[a.id], 'every attacker must be supplied');
     // Only the share actually aimed at the target counts as the assault.
@@ -421,7 +424,7 @@ test('damage adds up: three streams hurt three times as much as one', () => {
       return sum + outputRate(s, a) / trails;
     }, 0);
     const before = target.count;
-    const window = 6;
+    const window = 10;
     hold(window);
 
     return { drain: (before - target.count) / window, output };
@@ -511,4 +514,25 @@ test('a garrison stops at its cap and passes the rest onward', () => {
   step(s);
   assert.equal(hub.count, before, 'a full garrison must not go past its cap');
   assert.ok(hub.carry > 30, `the surplus must be waiting to move on, was ${hub.carry}`);
+});
+
+test('beetles keep pace with the ants, wasps fly half again as fast', () => {
+  assert.equal(UNITS.beetle.speed, UNITS.worker.speed, 'a beetle crawls at ant pace');
+  assert.equal(UNITS.wasp.speed, UNITS.worker.speed * 1.5, 'a wasp is half again as quick');
+
+  // And that is what actually happens on the board, not just in the table.
+  const s = createGame(4242, 2);
+  const a = s.nodes[0];
+  const b = s.nodes[1];
+  a.x = 100; a.y = 400; b.x = 900; b.y = 400;
+  a.owner = 0;
+  s.players[0].home = a.id;
+  const kinds = ['worker', 'beetle', 'wasp'] as const;
+  for (const unit of kinds) {
+    s.packets.push({ owner: 0, unit, amount: 1, from: a.id, to: b.id, pos: 0, air: unit === 'wasp', dead: false });
+  }
+  run(s, 5);
+  const at = (unit: string) => s.packets.find((p) => p.unit === unit)!.pos;
+  assert.ok(Math.abs(at('worker') - at('beetle')) < 1e-9, 'ant and beetle must stay level');
+  assert.ok(at('wasp') > at('worker') * 1.4, 'the wasp must be well ahead');
 });

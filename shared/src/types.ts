@@ -82,10 +82,17 @@ export interface UnitSpec {
   flies: boolean;
 }
 
+/**
+ * Beetles crawl at exactly the pace of the ants around them -- what makes a
+ * beetle worth having is weight, not speed. Wasps fly at half again as fast,
+ * which together with ignoring trails is the whole of what a hive buys.
+ */
+export const WALKING_SPEED = 40;
+
 export const UNITS: Record<UnitType, UnitSpec> = {
-  worker: { speed: 52, power: 1, toughness: 1, flies: false },
-  beetle: { speed: 30, power: 2, toughness: 2, flies: false },
-  wasp: { speed: 78, power: 1, toughness: 1, flies: true },
+  worker: { speed: WALKING_SPEED, power: 1, toughness: 1, flies: false },
+  beetle: { speed: WALKING_SPEED, power: 2, toughness: 2, flies: false },
+  wasp: { speed: WALKING_SPEED * 1.5, power: 1, toughness: 1, flies: true },
 };
 
 /**
