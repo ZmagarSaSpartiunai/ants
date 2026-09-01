@@ -1,4 +1,6 @@
+import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
+import { extname, join, normalize, resolve } from 'node:path';
 import { WebSocket, WebSocketServer } from 'ws';
 import { BotLevel, ClientMsg } from '@ants/shared';
 import { makeCode, normalizeCode } from './codes.js';
@@ -11,6 +13,48 @@ const HOST = process.env.HOST ?? '127.0.0.1';
 const MAX_ROOMS = 500;
 /** A client sending faster than this is not a player. */
 const MAX_MSGS_PER_SEC = 40;
+
+/**
+ * The game serves its own client. The box already runs a Caddy for the control
+ * panel, but that site answers on a bare port and matches every Host, so a
+ * second hostname pointed at it would serve the panel instead of the game.
+ * One process, one port, and nothing to break next door.
+ */
+const WEB_ROOT = resolve(process.env.WEB_ROOT ?? '../client/dist');
+
+const TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.webmanifest': 'application/manifest+json',
+  '.ico': 'image/x-icon',
+};
+
+function serveStatic(req: IncomingMessage, res: ServerResponse): void {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  // normalize collapses any ../ before it can escape the web root.
+  const rel = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '');
+  let file = join(WEB_ROOT, rel);
+  if (!file.startsWith(WEB_ROOT)) {
+    res.writeHead(403).end();
+
+    return;
+  }
+  if (!existsSync(file) || statSync(file).isDirectory()) file = join(WEB_ROOT, 'index.html');
+  if (!existsSync(file)) {
+    res.writeHead(404).end('not built');
+
+    return;
+  }
+  const ext = extname(file).toLowerCase();
+  // Hashed asset names may be cached hard; index.html never may.
+  const cache = ext === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable';
+  res.writeHead(200, { 'content-type': TYPES[ext] ?? 'application/octet-stream', 'cache-control': cache });
+  createReadStream(file).pipe(res);
+}
 
 const rooms = new Map<string, Room>();
 const membership = new WeakMap<WebSocket, Room>();
@@ -107,7 +151,12 @@ const http = createServer((req: IncomingMessage, res: ServerResponse) => {
 
     return;
   }
-  res.writeHead(404).end();
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.writeHead(405).end();
+
+    return;
+  }
+  serveStatic(req, res);
 });
 
 const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 16 * 1024 });

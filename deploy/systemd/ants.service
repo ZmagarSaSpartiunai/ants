@@ -1,0 +1,25 @@
+[Unit]
+Description=Мурашник — ігровий сервер
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/projects/ants
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=8787
+Environment=WEB_ROOT=%h/projects/ants/client/dist
+EnvironmentFile=-%h/projects/ants/.env
+ExecStart=%h/.local/node/bin/node server/dist/index.js
+Restart=always
+RestartSec=3
+
+# The process only ever needs its own tree and a loopback socket.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/projects/ants
+
+[Install]
+WantedBy=default.target
