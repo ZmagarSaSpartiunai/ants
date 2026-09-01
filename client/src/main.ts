@@ -698,7 +698,13 @@ export class App {
         <label>${t('language')}</label><select id="lang">${langs}</select>
         <button id="snd">${t('sound')}: ${soundOn() ? '🔊' : '🔇'}</button>
       </div>
-      <div class="stack"><button id="close">${t('back')}</button></div>
+      <div class="stack">${
+        // On the front door there is nothing to go back to, so the way out
+        // leads to the shelf instead.
+        this.demo
+          ? `<a class="quit" href="/">${t('allGames')}</a>`
+          : `<button id="close">${t('back')}</button>`
+      }</div>
     `);
 
     p.querySelector('#pc')!.addEventListener('click', (e) => {
@@ -727,7 +733,7 @@ export class App {
       this.ensureNet();
       this.render();
     });
-    p.querySelector('#close')!.addEventListener('click', () => {
+    p.querySelector('#close')?.addEventListener('click', () => {
       this.screen = this.state?.over ? 'over' : 'game';
       if (this.screen === 'over') this.showOver(this.state!.winner);
       else this.hideOverlay();

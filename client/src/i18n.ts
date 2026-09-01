@@ -75,6 +75,7 @@ const EN: Dict = {
   statTime: 'Time played',
   title: 'Anthill',
   tagline: 'Tower war where the trail itself can be cut',
+  allGames: 'All games',
 };
 
 const UK: Dict = {
@@ -150,6 +151,7 @@ const UK: Dict = {
   statTime: 'Часу в грі',
   title: 'Мурашник',
   tagline: 'Війна веж, у якій можна перерізати саму стежку',
+  allGames: 'Усі ігри',
 };
 
 const PL: Dict = {
@@ -204,6 +206,7 @@ const PL: Dict = {
   statTime: 'Czas gry',
   title: 'Mrowisko',
   tagline: 'Wojna wież, w której można przeciąć sam szlak',
+  allGames: 'Wszystkie gry',
 };
 
 const DE: Dict = {
@@ -258,6 +261,7 @@ const DE: Dict = {
   statTime: 'Spielzeit',
   title: 'Ameisenhaufen',
   tagline: 'Tower War, in dem der Pfad selbst zerbissen wird',
+  allGames: 'Alle Spiele',
 };
 
 const ES: Dict = {
@@ -312,6 +316,7 @@ const ES: Dict = {
   statTime: 'Tiempo jugado',
   title: 'Hormiguero',
   tagline: 'Tower war donde el sendero mismo se puede cortar',
+  allGames: 'Todos los juegos',
 };
 
 const PT: Dict = {
@@ -366,6 +371,7 @@ const PT: Dict = {
   statTime: 'Tempo de jogo',
   title: 'Formigueiro',
   tagline: 'Tower war onde o próprio trilho pode ser cortado',
+  allGames: 'Todos os jogos',
 };
 
 export const LANGS: Record<string, { name: string; dict: Dict }> = {

@@ -19,6 +19,9 @@
     -webkit-tap-highlight-color: transparent;
   }
   body {
+    /* 100vh, not 100%: a percentage height on the body only measures its own
+       content, so the background stopped halfway down the page. */
+    min-height: 100vh;
     display: grid;
     place-items: center;
     padding: max(20px, env(safe-area-inset-top)) 16px 32px;
