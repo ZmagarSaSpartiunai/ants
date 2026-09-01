@@ -3,3 +3,4 @@ export * from './rng.js';
 export * from './maps.js';
 export * from './sim.js';
 export * from './bot.js';
+export * from './levels.js';

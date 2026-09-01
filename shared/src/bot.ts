@@ -196,6 +196,25 @@ export class Bot {
     return out;
   }
 
+  /** Does anything downstream of this node still point at somebody else? */
+  private feedsAFront(s: GameState, nodeId: number): boolean {
+    const seen = new Set<number>([nodeId]);
+    const queue = [nodeId];
+    while (queue.length) {
+      const id = queue.pop()!;
+      for (const t of s.trails) {
+        if (t.from !== id || t.owner !== this.player) continue;
+        if (s.nodes[t.to]?.owner !== this.player) return true;
+        if (!seen.has(t.to)) {
+          seen.add(t.to);
+          queue.push(t.to);
+        }
+      }
+    }
+
+    return false;
+  }
+
   /** How much of the enemy network hangs off this one trail. */
   private arteryValue(s: GameState, t: Trail): number {
     const owner = t.owner;
@@ -233,9 +252,15 @@ export class Bot {
       const from = s.nodes[t.from];
       if (!to || !from) continue;
       let score = 0;
-      // A full node with nowhere to forward to throws the whole stream away.
-      const onward = s.trails.some((x) => x.from === to.id);
-      if (to.owner === this.player && to.count >= KINDS[to.kind].cap && !onward) score = 1.4;
+      if (to.owner === this.player && to.count >= KINDS[to.kind].cap * 0.9) {
+        // A trail built to take a node keeps pointing at it long after it is
+        // taken, and the slot it holds is gone for good. Left alone the bot
+        // ends up with forty trails feeding its own full territory and two
+        // aimed at the enemy, and a decided match never finishes.
+        //
+        // A chain is only worth keeping if it still leads somewhere contested.
+        score = this.feedsAFront(s, to.id) ? 0 : 1.8;
+      }
       // A source with nothing in it is barely producing; the slot is better spent.
       if (from.count < 3) score = Math.max(score, 0.9);
       if (score > 0) out.push({ cmd: { t: 'unlink', p: this.player, trail: t.id }, score });

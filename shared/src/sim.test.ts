@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Bot } from './bot.js';
+import { goalProgress, judge, LEVELS } from './levels.js';
 import {
   applyCommand,
   blockedBy,
@@ -737,4 +738,43 @@ test('the strength table is exactly as designed', () => {
   assert.equal(UNITS.wasp.power, 1);
   assert.equal(UNITS.beetle.speed, UNITS.worker.speed);
   assert.equal(UNITS.wasp.speed, UNITS.worker.speed * 2);
+});
+
+test('every campaign level is playable and its goal is reachable', () => {
+  assert.ok(LEVELS.length >= 12, 'a campaign needs enough levels to be one');
+  const seeds = new Set<number>();
+  for (const l of LEVELS) {
+    assert.ok(l.players >= 2 && l.players <= 4, `level ${l.id} has ${l.players} players`);
+    assert.ok(!seeds.has(l.seed), `level ${l.id} repeats a map`);
+    seeds.add(l.seed);
+
+    const s = createGame(l.seed, l.players);
+    if (l.goal.t === 'hold') {
+      // Asking for more nodes than the map has would be unwinnable.
+      assert.ok(
+        l.goal.nodes < s.nodes.length,
+        `level ${l.id} asks for ${l.goal.nodes} of ${s.nodes.length} nodes`,
+      );
+    }
+    assert.equal(judge(s, l.goal, 0), 'playing', `level ${l.id} is already decided at the start`);
+  }
+});
+
+test('a level is judged on its goal, not on annihilation', () => {
+  const s = createGame(LEVELS[0].seed, 2);
+  const hold = { t: 'hold' as const, nodes: 4 };
+  assert.equal(judge(s, hold, 0), 'playing');
+  let given = 0;
+  for (const n of s.nodes) {
+    if (n.owner === NEUTRAL && given < 3) {
+      n.owner = 0;
+      given++;
+    }
+  }
+  assert.equal(judge(s, hold, 0), 'won', 'holding the asked-for nodes wins it');
+  assert.deepEqual(goalProgress(s, hold, 0), { have: 4, need: 4 });
+
+  // Being knocked out loses it, whatever the goal said.
+  s.players[0].alive = false;
+  assert.equal(judge(s, hold, 0), 'lost');
 });

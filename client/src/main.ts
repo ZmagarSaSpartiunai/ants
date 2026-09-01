@@ -8,6 +8,11 @@ import {
   createGame,
   DT,
   GameState,
+  goalProgress,
+  judge,
+  LevelDef,
+  LEVELS,
+  levelById,
   NEUTRAL,
   RoomPlayer,
   ServerMsg,
@@ -20,9 +25,10 @@ import { Net } from './net.js';
 import { detectLang, LANGS, setLang, t } from './i18n.js';
 import { loadSound, setSound, sfx, soundOn, unlock } from './audio.js';
 import { playerColor } from './theme.js';
+import { bump, isUnlocked, progress, recordLevel, recordMatch, resetProgress, unlockedUpTo } from './progress.js';
 
 type Mode = 'solo' | 'online';
-type Screen = 'game' | 'menu' | 'onlineMenu' | 'lobby' | 'over';
+type Screen = 'game' | 'menu' | 'onlineMenu' | 'lobby' | 'over' | 'levels' | 'stats';
 
 interface TickMsg {
   tick: number;
@@ -83,6 +89,10 @@ export class App {
 
   private soloPlayers = 2;
   private soloLevel: BotLevel = 'normal';
+  /** The campaign level being played, or null for a free skirmish. */
+  private level: LevelDef | null = null;
+  private startedAt = 0;
+  private won = false;
   private wantSlots = 2;
 
   constructor(root: HTMLElement) {
@@ -157,6 +167,9 @@ export class App {
     if (this.screen !== 'game' && this.screen !== 'over') return;
     if (this.mode === 'solo') this.advanceSolo(dt);
     else this.advanceOnline(dt);
+    // Judged here rather than in the draw loop: a level has to be able to end
+    // whether or not anybody is currently looking at it.
+    this.checkGoal();
   }
 
   private watchVisibility(): void {
@@ -218,12 +231,20 @@ export class App {
       if (e.t === 'capture') {
         const n = s.nodes[e.node];
         this.renderer.addEffect('capture', n.x, n.y, playerColor(e.by));
-        if (e.by === this.youId) sfx.capture();
-        else if (e.lost === this.youId) sfx.lost();
+        if (e.by === this.youId) {
+          sfx.capture();
+          bump('taken');
+        } else if (e.lost === this.youId) {
+          sfx.lost();
+          bump('lost');
+        }
       } else if (e.t === 'snap') {
         this.renderer.addEffect('snap', e.x, e.y, '#ffd98a');
         sfx.snap();
+        if (e.by === this.youId) bump('cut');
+        else if (s.trails.every((x) => x.id !== e.trail)) bump('wasCut');
       } else if (e.t === 'delta') {
+        if (!e.hostile && e.by === this.youId) bump('delivered', Math.round(e.amount));
         const cur = this.deltas.get(e.node);
         if (cur && cur.hostile === e.hostile && cur.by === e.by) cur.amount += e.amount;
         else {
@@ -234,6 +255,7 @@ export class App {
         this.renderer.addEffect('clash', e.x, e.y, '#ffffff');
         if (Math.random() < 0.25) sfx.clash();
       } else if (e.t === 'over') {
+        if (this.mode === 'solo' && !this.level) recordMatch(e.winner === this.youId, s.tick / 20);
         this.finish(e.winner);
       }
     }
@@ -289,20 +311,70 @@ export class App {
   }
 
   private startSolo(): void {
+    this.level = null;
+    this.begin((Math.random() * 0xfffff) >>> 0, this.soloPlayers, this.soloLevel);
+  }
+
+  /** A campaign level: fixed seed, so the map is the same every time. */
+  private startLevel(def: LevelDef): void {
+    this.level = def;
+    this.begin(def.seed, def.players, def.bot);
+    this.say(this.goalText());
+  }
+
+  private begin(seed: number, players: number, level: BotLevel): void {
     this.mode = 'solo';
     this.screen = 'game';
     this.youId = 0;
     this.queue = [];
     this.pending = [];
-    const seed = (Math.random() * 0xfffff) >>> 0;
-    this.state = createGame(seed, this.soloPlayers);
+    this.won = false;
+    this.startedAt = 0;
+    this.state = createGame(seed, players);
     this.bots = [];
-    for (let i = 1; i < this.soloPlayers; i++) {
-      this.bots.push(new Bot(i, this.soloLevel, (seed + i * 7919) >>> 0));
+    for (let i = 1; i < players; i++) {
+      this.bots.push(new Bot(i, level, (seed + i * 7919) >>> 0));
     }
     this.acc = 0;
     this.input.reset();
     this.hideOverlay();
+  }
+
+  /** The level's goal in one line, for the hint and the end screen. */
+  private goalText(): string {
+    const g = this.level?.goal;
+    if (!g) return '';
+    if (g.t === 'wipe') return t('goalWipe');
+    if (g.t === 'homes') return t('goalHomes');
+
+    return t('goalHold').replace('%n', String(g.nodes));
+  }
+
+  /**
+   * A campaign level ends on its goal, not on annihilation. Half of even
+   * matches never resolve by wiping somebody out -- cutting supply is meant to
+   * be an answer to a stronger opponent -- so a level that asked for that could
+   * simply hang.
+   */
+  private checkGoal(): void {
+    const s = this.state;
+    if (!s || !this.level || this.screen !== 'game') return;
+    const verdict = judge(s, this.level.goal, this.youId);
+    if (verdict === 'playing') return;
+    this.finishLevel(verdict === 'won');
+  }
+
+  private finishLevel(won: boolean): void {
+    const s = this.state!;
+    const seconds = s.tick / 20;
+    this.won = won;
+    if (won && this.level) recordLevel(this.level.id, seconds);
+    recordMatch(won, seconds);
+    this.input.reset();
+    if (won) sfx.win();
+    else sfx.lose();
+    this.screen = 'over';
+    this.showOver(won ? this.youId : NEUTRAL);
   }
 
   private ensureNet(): Net {
@@ -459,6 +531,96 @@ export class App {
     if (this.screen === 'menu') this.showMenu();
     else if (this.screen === 'onlineMenu') this.showOnlineMenu();
     else if (this.screen === 'lobby') this.showLobby();
+    else if (this.screen === 'levels') this.showLevels();
+    else if (this.screen === 'stats') this.showStats();
+  }
+
+  /**
+   * The campaign map. Locked levels are shown rather than hidden: seeing what
+   * is ahead is most of why a progress screen is worth having.
+   */
+  private showLevels(): void {
+    const p = progress();
+    const next = unlockedUpTo();
+    const cells = LEVELS.map((l) => {
+      const done = p.levels[l.id]?.done;
+      const open = isUnlocked(l.id);
+      const mark = done ? '\u2713' : open ? String(l.id) : '\u{1F512}';
+      const cls = done ? 'lvl done' : open ? 'lvl open' : 'lvl';
+
+      return `<button class="${cls}" data-id="${l.id}"${open ? '' : ' disabled'}>${mark}</button>`;
+    }).join('');
+    const cur = levelById(next);
+    const panel = this.panel(`
+      <h2>${t('campaign')}</h2>
+      <p class="sub">${cur ? this.describe(cur) : t('campaignDone')}</p>
+      <div class="levels">${cells}</div>
+      <div class="stack">
+        <button class="primary" id="play">${t('level')} ${next}</button>
+        <button id="back">${t('back')}</button>
+      </div>
+    `);
+    panel.querySelector('.levels')!.addEventListener('click', (e) => {
+      const id = Number((e.target as HTMLElement).dataset.id);
+      const def = levelById(id);
+      if (def && isUnlocked(id)) this.startLevel(def);
+    });
+    panel.querySelector('#play')!.addEventListener('click', () => {
+      const def = levelById(next);
+      if (def) this.startLevel(def);
+    });
+    panel.querySelector('#back')!.addEventListener('click', () => {
+      this.screen = 'menu';
+      this.render();
+    });
+  }
+
+  /** One line saying what this level asks and who is on it. */
+  private describe(l: LevelDef): string {
+    const goal =
+      l.goal.t === 'wipe'
+        ? t('goalWipe')
+        : l.goal.t === 'homes'
+          ? t('goalHomes')
+          : t('goalHold').replace('%n', String(l.goal.nodes));
+
+    return `${t('level')} ${l.id} \u00b7 ${l.players} \u00b7 ${t(l.bot)} \u2014 ${goal}`;
+  }
+
+  private showStats(): void {
+    const st = progress().stats;
+    const done = LEVELS.filter((l) => progress().levels[l.id]?.done).length;
+    const rate = st.played ? Math.round((st.won / st.played) * 100) : 0;
+    const mins = Math.round(st.seconds / 60);
+    const rows: [string, string][] = [
+      [t('statMatches'), String(st.played)],
+      [t('statWins'), `${st.won} (${rate}%)`],
+      [t('statStreak'), String(st.bestStreak)],
+      [t('statLevels'), `${done} / ${LEVELS.length}`],
+      [t('statTaken'), String(st.taken)],
+      [t('statLostNodes'), String(st.lost)],
+      [t('statCut'), String(st.cut)],
+      [t('statDelivered'), String(st.delivered)],
+      [t('statTime'), `${mins} ${t('minutes')}`],
+    ];
+    const panel = this.panel(`
+      <h2>${t('stats')}</h2>
+      <ul class="stats">${rows
+        .map(([k, v]) => `<li><span>${k}</span><b>${v}</b></li>`)
+        .join('')}</ul>
+      <div class="stack">
+        <button id="reset">${t('resetStats')}</button>
+        <button id="back">${t('back')}</button>
+      </div>
+    `);
+    panel.querySelector('#reset')!.addEventListener('click', () => {
+      resetProgress();
+      this.showStats();
+    });
+    panel.querySelector('#back')!.addEventListener('click', () => {
+      this.screen = 'menu';
+      this.render();
+    });
   }
 
   private panel(html: string): HTMLElement {
@@ -484,8 +646,10 @@ export class App {
           .join('')}
       </div></div>
       <div class="stack">
-        <button class="primary" id="solo">${t('solo')}</button>
+        <button class="primary" id="campaign">${t('campaign')}</button>
+        <button id="solo">${t('solo')}</button>
         <button id="online">${t('online')}</button>
+        <button id="stats">${t('stats')}</button>
       </div>
       <div class="row" style="margin-top:16px">
         <label>${t('language')}</label><select id="lang">${langs}</select>
@@ -505,6 +669,14 @@ export class App {
       if (!l) return;
       this.soloLevel = l;
       this.showMenu();
+    });
+    p.querySelector('#campaign')!.addEventListener('click', () => {
+      this.screen = 'levels';
+      this.render();
+    });
+    p.querySelector('#stats')!.addEventListener('click', () => {
+      this.screen = 'stats';
+      this.render();
     });
     p.querySelector('#solo')!.addEventListener('click', () => this.startSolo());
     p.querySelector('#online')!.addEventListener('click', () => {
@@ -626,7 +798,17 @@ export class App {
   }
 
   private showOver(winner: number): void {
-    const title = winner === this.youId ? t('won') : winner === NEUTRAL ? t('draw') : t('lost');
+    const level = this.level;
+    const beatIt = level && this.won;
+    const title = beatIt
+      ? t('won')
+      : level
+        ? t('lost')
+        : winner === this.youId
+          ? t('won')
+          : winner === NEUTRAL
+            ? t('draw')
+            : t('lost');
     const s = this.state;
     const rows = (s?.players ?? [])
       .map((pl) => {
@@ -650,14 +832,22 @@ export class App {
       <ul class="lobby-list">${rows.map((r, i) => r.html(i === 0 && winner !== NEUTRAL)).join('')}</ul>`;
     const p = this.panel(`
       <h1>${title}</h1>
-      <p class="sub">${t('hintSupply')}</p>
+      <p class="sub">${level ? escapeHtml(this.goalText()) : t('hintSupply')}</p>
       ${table}
       <div class="stack">
-        <button class="primary" id="again">${t('again')}</button>
+        ${beatIt && levelById(level!.id + 1) ? `<button class="primary" id="next">${t('nextLevel')}</button>` : ''}
+        <button class="${beatIt ? '' : 'primary'}" id="again">${level ? t('retry') : t('again')}</button>
         <button id="menu">${t('menu')}</button>
       </div>
     `);
-    p.querySelector('#again')!.addEventListener('click', () => this.startSolo());
+    p.querySelector('#next')?.addEventListener('click', () => {
+      const nxt = levelById(level!.id + 1);
+      if (nxt) this.startLevel(nxt);
+    });
+    p.querySelector('#again')!.addEventListener('click', () => {
+      if (level) this.startLevel(level);
+      else this.startSolo();
+    });
     p.querySelector('#menu')!.addEventListener('click', () => {
       this.screen = 'menu';
       this.render();
