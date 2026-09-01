@@ -31,13 +31,33 @@ interface TickMsg {
 /** Ticks held back before simulating, to absorb network jitter. */
 const BUFFER = 3;
 
-class App {
+export class App {
   private readonly canvas = document.createElement('canvas');
   private readonly overlay = document.createElement('div');
   private readonly hud = document.createElement('div');
   private readonly toast = document.createElement('div');
+  private readonly legend = document.createElement('div');
   private readonly renderer: Renderer;
   private readonly input: Input;
+
+  /** Read-only view for the development hook above. */
+  debug() {
+    return {
+      screen: this.screen,
+      mode: this.mode,
+      you: this.youId,
+      drag: this.input.drag,
+      nodes: this.state?.nodes,
+      trails: this.state?.trails,
+      packets: this.state?.packets.length,
+      supplied: this.state?.supplied,
+      over: this.state?.over,
+      tick: this.state?.tick,
+      toWorld: (x: number, y: number) => this.renderer.toWorld(x, y),
+      /** Advance without drawing -- lets a test drive a backgrounded tab. */
+      pump: (seconds: number) => this.pump(seconds),
+    };
+  }
 
   private mode: Mode = 'solo';
   private screen: Screen = 'game';
@@ -46,6 +66,7 @@ class App {
   private youId = 0;
   private acc = 0;
   private last = 0;
+  private background: ReturnType<typeof setInterval> | null = null;
 
   private net: Net | null = null;
   private queue: TickMsg[] = [];
@@ -62,7 +83,8 @@ class App {
   private wantBots = true;
 
   constructor(root: HTMLElement) {
-    root.append(this.canvas, this.hud, this.toast, this.overlay);
+    root.append(this.canvas, this.hud, this.legend, this.toast, this.overlay);
+    this.legend.className = 'legend';
     this.hud.id = 'hud';
     this.toast.id = 'toast';
     this.overlay.id = 'overlay';
@@ -81,10 +103,12 @@ class App {
     window.addEventListener('resize', () => this.renderer.resize());
     window.addEventListener('pointerdown', () => unlock(), { once: true });
     this.renderer.resize();
+    this.drawLegend();
 
     // The game starts in gameplay, not in a menu: portals require it, and it is
     // also the only honest way to show what the game is.
     this.startSolo();
+    this.watchVisibility();
     requestAnimationFrame(this.frame);
     setTimeout(() => this.say(t('hintLink')), 900);
   }
@@ -94,11 +118,7 @@ class App {
   private frame = (now: number): void => {
     const dt = this.last ? Math.min(0.25, (now - this.last) / 1000) : 0;
     this.last = now;
-
-    if (this.screen === 'game' || this.screen === 'over') {
-      if (this.mode === 'solo') this.advanceSolo(dt);
-      else this.advanceOnline(dt);
-    }
+    this.pump(dt);
     const now2 = performance.now();
     this.pending = this.pending.filter((p) => p.until > now2);
 
@@ -115,6 +135,36 @@ class App {
     }
     requestAnimationFrame(this.frame);
   };
+
+  /**
+   * Advancing the match is separate from drawing it. A hidden tab gets no
+   * animation frames at all, and online that is not merely a paused picture:
+   * the server keeps sending a tick every 50 ms, so the queue would pile up
+   * unbounded and then replay as one lurch on return.
+   */
+  private pump(dt: number): void {
+    if (this.screen !== 'game' && this.screen !== 'over') return;
+    if (this.mode === 'solo') this.advanceSolo(dt);
+    else this.advanceOnline(dt);
+  }
+
+  private watchVisibility(): void {
+    const onHidden = (): void => {
+      if (document.hidden) {
+        // Solo genuinely pauses -- there is nobody to fall behind. Online has
+        // to keep up with the server whether anyone is looking or not.
+        if (this.background || this.mode !== 'online') return;
+        this.background = setInterval(() => this.pump(DT), 1000 / 20);
+
+        return;
+      }
+      if (this.background) clearInterval(this.background);
+      this.background = null;
+      // Frames resumed while this callback ran, so do not double-count time.
+      this.last = 0;
+    };
+    document.addEventListener('visibilitychange', onHidden);
+  }
 
   private advanceSolo(dt: number): void {
     const s = this.state;
@@ -253,6 +303,9 @@ class App {
       this.say(t('hintChew'));
     } else if (msg.t === 'cmds') {
       this.queue.push({ tick: msg.tick, cmds: msg.cmds });
+      // Ten seconds of backlog means this client is hopelessly behind; the next
+      // snapshot will reseat it, so hoarding older ticks only wastes memory.
+      if (this.queue.length > 200) this.queue.splice(0, this.queue.length - 200);
     } else if (msg.t === 'sync') {
       // Authoritative correction: covers a reconnect or any drift.
       this.state = msg.state;
@@ -266,6 +319,26 @@ class App {
   }
 
   // ----------------------------------------------------------------------- ui
+
+  /**
+   * The three silhouettes, spelled out. Shape is the only thing that can say
+   * what a node is -- colour is already spoken for by ownership -- so the key
+   * has to be on screen rather than in a tutorial nobody reads.
+   */
+  private drawLegend(): void {
+    const shapes = [
+      ['nest', `<circle cx="11" cy="11" r="9" />`, t('legendNest')],
+      ['den', `<polygon points="20,11 15.5,18.8 6.5,18.8 2,11 6.5,3.2 15.5,3.2" />`, t('legendDen')],
+      ['hive', `<polygon points="11,1.5 20.2,17 1.8,17" />`, t('legendHive')],
+    ];
+    this.legend.innerHTML = shapes
+      .map(
+        ([, shape, label]) =>
+          `<span class="lg"><svg viewBox="0 0 22 22" width="15" height="15" fill="none"
+             stroke="currentColor" stroke-width="2">${shape}</svg>${label}</span>`,
+      )
+      .join('');
+  }
 
   private say(text: string): void {
     this.toast.textContent = text;
@@ -284,6 +357,7 @@ class App {
     if (!s) return;
     if (this.screen !== 'game' && this.screen !== 'over') {
       this.hud.innerHTML = '';
+      this.legend.hidden = true;
 
       return;
     }
@@ -306,6 +380,7 @@ class App {
         </div>`;
       })
       .join('');
+    this.legend.hidden = false;
     const html = `<div class="pips">${pips}</div><button id="menuBtn">${t('menu')}</button>`;
     if (this.hud.innerHTML !== html) {
       this.hud.innerHTML = html;
@@ -382,6 +457,7 @@ class App {
     sel.value = document.documentElement.lang;
     sel.addEventListener('change', () => {
       setLang(sel.value);
+      this.drawLegend();
       this.showMenu();
     });
     p.querySelector('#snd')!.addEventListener('click', () => {
@@ -501,4 +577,11 @@ function escapeHtml(s: string): string {
   );
 }
 
-new App(document.getElementById('app')!);
+const app = new App(document.getElementById('app')!);
+
+// Development-only hook. The game is driven by pointer events on a canvas, so
+// there is no DOM to assert against: a test bot needs a way to read the state
+// it just poked. Stripped from production builds by the bundler.
+if (import.meta.env.DEV) {
+  (window as unknown as Record<string, unknown>).__dbg = app;
+}

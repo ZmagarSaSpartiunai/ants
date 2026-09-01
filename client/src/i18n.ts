@@ -36,6 +36,14 @@ const EN: Dict = {
   left: 'left the game',
   sound: 'Sound',
   language: 'Language',
+  hintAir: 'Wasps ignore trails — take the hive itself',
+  hintOwn: 'Tap your own trail to remove it',
+  hintRange: 'Too far for a trail — go through a closer node',
+  hintBusy: 'You are gnawing — let go first',
+  legendNest: 'Nest · workers',
+  legendDen: 'Beetle den · breaks through',
+  legendHive: 'Wasp hive · flies anywhere',
+  legend: 'What is what',
 };
 
 const UK: Dict = {
@@ -72,6 +80,14 @@ const UK: Dict = {
   left: 'вийшов з гри',
   sound: 'Звук',
   language: 'Мова',
+  hintAir: 'Оси стежками не ходять — захопи саме гніздо',
+  hintOwn: 'Тицьни на свою стежку, щоб її прибрати',
+  hintRange: 'Задалеко для стежки — йди через ближчий вузол',
+  hintBusy: 'Ти гризеш — спершу відпусти',
+  legendNest: 'Мурашник · робочі',
+  legendDen: 'Загін жуків · пробиває',
+  legendHive: 'Осине гніздо · летить будь-куди',
+  legend: 'Що є що',
 };
 
 const PL: Dict = {
@@ -86,6 +102,14 @@ const PL: Dict = {
   offline: 'Serwer niedostępny — gra jednoosobowa działa', connecting: 'Łączenie',
   roomFull: 'Pokój pełny', noRoom: 'Nie ma takiego pokoju', left: 'opuścił grę',
   sound: 'Dźwięk', language: 'Język',
+  hintAir: 'Osy nie chodzą szlakami — zdobądź samo gniazdo',
+  hintOwn: 'Dotknij swojego szlaku, aby go usunąć',
+  hintRange: 'Za daleko na szlak — idź przez bliższy węzeł',
+  hintBusy: 'Przegryzasz — najpierw puść',
+  legendNest: 'Mrowisko · robotnice',
+  legendDen: 'Legowisko żuków · przebija',
+  legendHive: 'Gniazdo os · lata wszędzie',
+  legend: 'Co jest czym',
 };
 
 const DE: Dict = {
@@ -100,6 +124,14 @@ const DE: Dict = {
   offline: 'Server nicht erreichbar — Einzelspieler läuft', connecting: 'Verbinde',
   roomFull: 'Raum ist voll', noRoom: 'Raum nicht gefunden', left: 'hat das Spiel verlassen',
   sound: 'Ton', language: 'Sprache',
+  hintAir: 'Wespen nutzen keine Pfade — nimm das Nest selbst',
+  hintOwn: 'Tippe deinen Pfad an, um ihn zu entfernen',
+  hintRange: 'Zu weit für einen Pfad — geh über einen näheren Knoten',
+  hintBusy: 'Du beißt gerade — lass erst los',
+  legendNest: 'Nest · Arbeiterinnen',
+  legendDen: 'Käferbau · bricht durch',
+  legendHive: 'Wespennest · fliegt überall hin',
+  legend: 'Was ist was',
 };
 
 const ES: Dict = {
@@ -114,6 +146,14 @@ const ES: Dict = {
   offline: 'Servidor no disponible — un jugador funciona', connecting: 'Conectando',
   roomFull: 'Sala llena', noRoom: 'No existe esa sala', left: 'salió de la partida',
   sound: 'Sonido', language: 'Idioma',
+  hintAir: 'Las avispas no usan senderos — toma el avispero',
+  hintOwn: 'Toca tu sendero para quitarlo',
+  hintRange: 'Demasiado lejos — pasa por un nodo más cercano',
+  hintBusy: 'Estás royendo — suelta primero',
+  legendNest: 'Hormiguero · obreras',
+  legendDen: 'Guarida · atraviesa',
+  legendHive: 'Avispero · vuela a todas partes',
+  legend: 'Qué es qué',
 };
 
 const PT: Dict = {
@@ -128,6 +168,14 @@ const PT: Dict = {
   offline: 'Servidor indisponível — um jogador funciona', connecting: 'A ligar',
   roomFull: 'Sala cheia', noRoom: 'Sala não encontrada', left: 'saiu do jogo',
   sound: 'Som', language: 'Idioma',
+  hintAir: 'As vespas não usam trilhos — toma o próprio ninho',
+  hintOwn: 'Toca no teu trilho para o remover',
+  hintRange: 'Longe demais — passa por um nó mais próximo',
+  hintBusy: 'Estás a roer — larga primeiro',
+  legendNest: 'Formigueiro · operárias',
+  legendDen: 'Covil · atravessa',
+  legendHive: 'Ninho de vespas · voa para todo o lado',
+  legend: 'O que é o quê',
 };
 
 export const LANGS: Record<string, { name: string; dict: Dict }> = {

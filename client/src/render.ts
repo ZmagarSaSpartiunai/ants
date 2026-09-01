@@ -1,10 +1,13 @@
 import {
+  canLink,
   FIELD_H,
   FIELD_W,
   GameNode,
   GameState,
   KINDS,
+  LINK_RANGE,
   NEUTRAL,
+  NodeKind,
   Packet,
   Trail,
   UNITS,
@@ -27,8 +30,13 @@ export interface Effect {
   max: number;
 }
 
-/** Trails run in both directions along one corridor, so each is nudged aside. */
-const LANE_OFFSET = 7;
+/**
+ * Only the pheromone bed is nudged aside, and barely. The marching columns stay
+ * on the centre line: offsetting them put two opposing streams on separate
+ * lanes, so they slid past each other on screen while the simulation was
+ * actually fighting them. The corridor between two nodes is one corridor.
+ */
+const BED_OFFSET = 4;
 
 export class Renderer {
   private readonly ctx: CanvasRenderingContext2D;
@@ -36,6 +44,7 @@ export class Renderer {
   private ox = 0;
   private oy = 0;
   private grain: HTMLCanvasElement | null = null;
+  private time = 0;
   readonly effects: Effect[] = [];
 
   constructor(readonly canvas: HTMLCanvasElement) {
@@ -66,7 +75,7 @@ export class Renderer {
   }
 
   addEffect(kind: Effect['kind'], x: number, y: number, color: string): void {
-    const max = kind === 'capture' ? 0.7 : kind === 'snap' ? 0.9 : 0.4;
+    const max = kind === 'capture' ? 0.7 : kind === 'snap' ? 0.9 : 0.5;
     this.effects.push({ kind, x, y, color, life: max, max });
   }
 
@@ -81,6 +90,7 @@ export class Renderer {
     const ctx = this.ctx;
     const w = this.canvas.clientWidth;
     const h = this.canvas.clientHeight;
+    this.time += dt;
 
     ctx.fillStyle = SOIL;
     ctx.fillRect(0, 0, w, h);
@@ -93,11 +103,12 @@ export class Renderer {
     ctx.clip();
 
     this.drawGround();
+    if (drag) this.drawReach(s, you, drag);
     for (const t of s.trails) this.drawTrail(s, t);
     for (const p of pending) this.drawPending(s, p.from, p.to);
     if (drag) this.drawDrag(s, drag);
     for (const p of s.packets) this.drawColumn(s, p, alphaTick);
-    for (const n of s.nodes) this.drawNode(s, n, you);
+    for (const n of s.nodes) this.drawNode(s, n, you, drag);
     for (const t of s.trails) this.drawChew(s, t);
     this.drawEffects(dt);
 
@@ -125,13 +136,31 @@ export class Renderer {
     }
   }
 
-  /** Perpendicular nudge so an A->B and a B->A trail stay separately readable. */
-  private lane(a: GameNode, b: GameNode): { nx: number; ny: number } {
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const len = Math.hypot(dx, dy) || 1;
-
-    return { nx: (-dy / len) * LANE_OFFSET, ny: (dx / len) * LANE_OFFSET };
+  /**
+   * The one thing a player cannot guess: how far a trail can be dug. Shown as
+   * ground the moment a drag starts, because "nothing happened" on release is
+   * indistinguishable from a broken control.
+   */
+  private drawReach(s: GameState, you: number, drag: DragPreview): void {
+    const from = s.nodes[drag.fromNode];
+    if (!from) return;
+    const ctx = this.ctx;
+    ctx.save();
+    if (from.kind === 'hive') {
+      // Wasps fly: the whole map is in range, and that is the point of a hive.
+      ctx.fillStyle = alpha(playerColor(you), 0.05);
+      ctx.fillRect(0, 0, FIELD_W, FIELD_H);
+    } else {
+      ctx.beginPath();
+      ctx.arc(from.x, from.y, LINK_RANGE, 0, Math.PI * 2);
+      ctx.fillStyle = alpha(playerColor(you), 0.055);
+      ctx.fill();
+      ctx.setLineDash([6, 9]);
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = alpha(playerColor(you), 0.28);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   private drawTrail(s: GameState, t: Trail): void {
@@ -139,15 +168,20 @@ export class Renderer {
     const a = s.nodes[t.from];
     const b = s.nodes[t.to];
     if (!a || !b) return;
-    const { nx, ny } = this.lane(a, b);
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = (-dy / len) * BED_OFFSET;
+    const ny = (dx / len) * BED_OFFSET;
     const color = playerColor(t.owner);
 
     ctx.save();
     if (t.air) {
-      // A flight path is drawn as a thin dotted arc: nothing to gnaw here.
-      ctx.setLineDash([2, 10]);
-      ctx.strokeStyle = alpha(color, 0.55);
-      ctx.lineWidth = 2;
+      // A flight path is a thin dotted line: there is nothing here to gnaw.
+      ctx.setLineDash([2, 11]);
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = alpha(color, 0.6);
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
       ctx.moveTo(a.x + nx, a.y + ny);
       ctx.lineTo(b.x + nx, b.y + ny);
@@ -157,18 +191,31 @@ export class Renderer {
       return;
     }
 
-    // Pheromone bed: a wide soft glow under a firm centre line.
     ctx.lineCap = 'round';
-    ctx.strokeStyle = alpha(color, 0.13);
-    ctx.lineWidth = 13;
+    ctx.strokeStyle = alpha(color, 0.14);
+    ctx.lineWidth = 14;
     ctx.beginPath();
     ctx.moveTo(a.x + nx, a.y + ny);
     ctx.lineTo(b.x + nx, b.y + ny);
     ctx.stroke();
 
-    ctx.strokeStyle = alpha(color, 0.42);
+    ctx.strokeStyle = alpha(color, 0.45);
     ctx.lineWidth = 2.5;
     ctx.stroke();
+
+    // An arrowhead near the far end: a trail is one-way, and that matters for
+    // supply, so the direction has to be visible without watching the ants.
+    const hx = a.x + dx * 0.72 + nx;
+    const hy = a.y + dy * 0.72 + ny;
+    const ux = dx / len;
+    const uy = dy / len;
+    ctx.fillStyle = alpha(color, 0.5);
+    ctx.beginPath();
+    ctx.moveTo(hx + ux * 7, hy + uy * 7);
+    ctx.lineTo(hx - ux * 4 - uy * 5, hy - uy * 4 + ux * 5);
+    ctx.lineTo(hx - ux * 4 + uy * 5, hy - uy * 4 - ux * 5);
+    ctx.closePath();
+    ctx.fill();
     ctx.restore();
   }
 
@@ -180,7 +227,7 @@ export class Renderer {
     ctx.setLineDash([9, 7]);
     ctx.lineWidth = 3;
     ctx.lineCap = 'round';
-    ctx.strokeStyle = drag.valid ? alpha(playerColor(from.owner), 0.9) : 'rgba(224,90,61,0.55)';
+    ctx.strokeStyle = drag.valid ? alpha(playerColor(from.owner), 0.95) : 'rgba(224,90,61,0.5)';
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(drag.x, drag.y);
@@ -222,14 +269,13 @@ export class Renderer {
     const pos = Math.min(1, p.pos + (UNITS[p.unit].speed * alphaTick) / (len * 20));
     const ux = dx / len;
     const uy = dy / len;
-    const { nx, ny } = p.air ? { nx: 0, ny: 0 } : this.lane(a, b);
-    const cx = a.x + dx * pos + nx;
-    const cy = a.y + dy * pos + ny;
+    const cx = a.x + dx * pos;
+    const cy = a.y + dy * pos;
     const color = playerColor(p.owner);
 
     const bodies = Math.max(1, Math.min(14, Math.round(p.amount * (p.unit === 'worker' ? 1.4 : 1))));
     const spread = 6 + bodies * 2.1;
-    const size = p.unit === 'beetle' ? 3.4 : p.unit === 'wasp' ? 2.6 : 2.2;
+    const size = p.unit === 'beetle' ? 3.6 : p.unit === 'wasp' ? 2.7 : 2.3;
 
     ctx.save();
     ctx.fillStyle = color;
@@ -262,7 +308,42 @@ export class Renderer {
     ctx.restore();
   }
 
-  private drawNode(s: GameState, n: GameNode, you: number): void {
+  /**
+   * Each kind gets its own silhouette. Colour says who owns a node; only shape
+   * can say what a node *is*, and a player has to know a hive on sight because
+   * a hive is the one thing they cannot answer by cutting.
+   */
+  private nodePath(kind: NodeKind, r: number): void {
+    const ctx = this.ctx;
+    ctx.beginPath();
+    if (kind === 'nest') {
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+
+      return;
+    }
+    if (kind === 'den') {
+      for (let i = 0; i < 6; i++) {
+        const a = (Math.PI / 3) * i;
+        const x = Math.cos(a) * r;
+        const y = Math.sin(a) * r;
+        i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      }
+      ctx.closePath();
+
+      return;
+    }
+    // Hive: a blunt triangle, unmistakable against circles and hexagons.
+    const R = r * 1.12;
+    for (let i = 0; i < 3; i++) {
+      const a = (Math.PI * 2 * i) / 3 - Math.PI / 2;
+      const x = Math.cos(a) * R;
+      const y = Math.sin(a) * R;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.closePath();
+  }
+
+  private drawNode(s: GameState, n: GameNode, you: number, drag: DragPreview | null): void {
     const ctx = this.ctx;
     const spec = KINDS[n.kind];
     const color = playerColor(n.owner);
@@ -270,92 +351,91 @@ export class Renderer {
     const starving = owned && !s.supplied[n.id];
     const r = spec.radius;
 
+    // While dragging, every node says plainly whether it can be reached.
+    let dim = false;
+    let target = false;
+    if (drag && n.id !== drag.fromNode) {
+      target = canLink(s, you, drag.fromNode, n.id);
+      dim = !target;
+    }
+
     ctx.save();
     ctx.translate(n.x, n.y);
+    if (dim) ctx.globalAlpha = 0.35;
 
-    // Mound: lit from above-left, so the board reads as ground, not as a chart.
     const g = ctx.createRadialGradient(-r * 0.35, -r * 0.4, r * 0.15, 0, 0, r);
     g.addColorStop(0, shade(color, owned ? 0.62 : 0.5));
     g.addColorStop(1, shade(color, owned ? 0.22 : 0.18));
     ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    this.nodePath(n.kind, r);
     ctx.fill();
 
     ctx.lineWidth = owned ? 3 : 2;
     if (starving) {
-      // Dashed rim is the single readable signal that supply is cut.
+      // Dashed rim is the one signal that this node has been cut off.
       ctx.setLineDash([5, 5]);
       ctx.strokeStyle = alpha(color, 0.5);
     } else {
-      ctx.strokeStyle = owned ? color : alpha(NEUTRAL_COLOR, 0.8);
+      ctx.strokeStyle = owned ? color : alpha(NEUTRAL_COLOR, 0.85);
     }
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    this.nodePath(n.kind, r);
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // A ring marks the player's supply root -- the thing worth defending.
+    if (owned) this.drawFillRing(n, r, color, starving);
+
+    // A ring marks a player's supply root -- the thing actually worth defending.
     const home = s.players.find((p) => p.alive && p.home === n.id);
     if (home) {
-      ctx.strokeStyle = alpha(playerColor(home.id), 0.55);
+      ctx.strokeStyle = alpha(playerColor(home.id), 0.5);
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      ctx.arc(0, 0, r + 6, 0, Math.PI * 2);
+      ctx.arc(0, 0, r + 11, 0, Math.PI * 2);
       ctx.stroke();
     }
-    if (n.owner === you) {
-      ctx.strokeStyle = alpha('#ffffff', 0.22);
-      ctx.lineWidth = 1;
+
+    if (target) {
+      const pulse = 0.55 + 0.45 * Math.sin(this.time * 7);
+      ctx.strokeStyle = alpha(playerColor(you), 0.35 + 0.45 * pulse);
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.arc(0, 0, r - 4, 0, Math.PI * 2);
+      ctx.arc(0, 0, r + 7, 0, Math.PI * 2);
       ctx.stroke();
     }
 
-    this.drawGlyph(n.kind, r, color, owned);
-
-    ctx.fillStyle = owned ? '#fff' : '#d8d3c8';
-    ctx.font = `600 ${Math.round(r * 0.82)}px "Segoe UI", Roboto, system-ui, sans-serif`;
+    ctx.fillStyle = owned ? '#fff' : '#ded8cc';
+    ctx.font = `700 ${Math.round(r * 0.8)}px "Segoe UI", Roboto, system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'rgba(0,0,0,0.75)';
-    ctx.shadowBlur = 4;
-    ctx.fillText(String(Math.floor(n.count)), 0, 1);
+    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+    ctx.shadowBlur = 5;
+    ctx.fillText(String(Math.floor(n.count)), 0, n.kind === 'hive' ? r * 0.18 : 1);
     ctx.restore();
   }
 
-  /** Each kind gets a silhouette, because colour alone cannot say "wasps". */
-  private drawGlyph(kind: GameNode['kind'], r: number, color: string, owned: boolean): void {
+  /**
+   * How full a node is, as an arc around its rim. Without it the only evidence
+   * of growth is a number ticking over, which players read as "nothing happens".
+   */
+  private drawFillRing(n: GameNode, r: number, color: string, starving: boolean): void {
     const ctx = this.ctx;
+    const cap = KINDS[n.kind].cap;
+    const frac = Math.max(0, Math.min(1, n.count / cap));
+    if (frac <= 0.001) return;
     ctx.save();
-    ctx.globalAlpha = owned ? 0.5 : 0.38;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.6;
-    if (kind === 'nest') {
-      // Concentric mound rings.
-      for (let i = 1; i <= 2; i++) {
-        ctx.beginPath();
-        ctx.arc(0, 0, r * (0.42 + i * 0.22), 0, Math.PI * 2);
-        ctx.stroke();
-      }
-    } else if (kind === 'den') {
-      // Beetle carapace: a hard hexagon.
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = starving ? alpha(color, 0.3) : alpha('#ffffff', 0.42);
+    ctx.beginPath();
+    ctx.arc(0, 0, r + 5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac);
+    ctx.stroke();
+    // Overfilled by deliveries: growth stops at the cap, arrivals do not.
+    if (n.count > cap) {
+      ctx.strokeStyle = alpha(color, 0.85);
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      for (let i = 0; i < 6; i++) {
-        const a = (Math.PI / 3) * i - Math.PI / 2;
-        const x = Math.cos(a) * r * 0.72;
-        const y = Math.sin(a) * r * 0.72;
-        i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-      }
-      ctx.closePath();
+      ctx.arc(0, 0, r + 8.5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, (n.count - cap) / cap));
       ctx.stroke();
-    } else {
-      // Paper comb: three small cells.
-      for (const [dx, dy] of [[0, -r * 0.34], [-r * 0.32, r * 0.22], [r * 0.32, r * 0.22]]) {
-        ctx.beginPath();
-        ctx.arc(dx, dy, r * 0.26, 0, Math.PI * 2);
-        ctx.stroke();
-      }
     }
     ctx.restore();
   }
@@ -366,9 +446,8 @@ export class Renderer {
     const a = s.nodes[t.from];
     const b = s.nodes[t.to];
     if (!a || !b) return;
-    const { nx, ny } = this.lane(a, b);
-    const x = (a.x + b.x) / 2 + nx;
-    const y = (a.y + b.y) / 2 + ny;
+    const x = (a.x + b.x) / 2;
+    const y = (a.y + b.y) / 2;
     // Cost is recomputed rather than sent: the client has the same rules.
     const load = s.packets.reduce(
       (acc, p) => (p.from === t.from && p.to === t.to && p.owner === t.owner ? acc + p.amount : acc),
@@ -379,12 +458,12 @@ export class Renderer {
 
     ctx.save();
     ctx.translate(x, y);
-    ctx.fillStyle = 'rgba(20,16,12,0.85)';
+    ctx.fillStyle = 'rgba(20,16,12,0.88)';
     ctx.beginPath();
-    ctx.arc(0, 0, 15, 0, Math.PI * 2);
+    ctx.arc(0, 0, 16, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.16)';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3.5;
     ctx.beginPath();
     ctx.arc(0, 0, 12, 0, Math.PI * 2);
     ctx.stroke();
@@ -393,8 +472,7 @@ export class Renderer {
     ctx.beginPath();
     ctx.arc(0, 0, 12, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac);
     ctx.stroke();
-    // Bite marks, growing as the trail gives way.
-    ctx.strokeStyle = alpha('#f0b429', 0.8);
+    ctx.strokeStyle = alpha('#f0b429', 0.85);
     ctx.lineWidth = 2;
     for (let i = 0; i < 3; i++) {
       const a2 = (Math.PI * 2 * i) / 3 + frac * 4;
@@ -437,12 +515,18 @@ export class Renderer {
           ctx.stroke();
         }
       } else {
-        ctx.fillStyle = alpha('#ffffff', k * 0.8);
-        for (let j = 0; j < 5; j++) {
-          const a = (Math.PI * 2 * j) / 5 + j * 1.7;
-          const d = (1 - k) * 16;
+        // Two columns meeting is the payoff of digging into a defended lane, so
+        // it gets a flash rather than a few quiet specks.
+        ctx.fillStyle = alpha('#fff1c9', k * 0.5);
+        ctx.beginPath();
+        ctx.arc(0, 0, 5 + (1 - k) * 13, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = alpha('#ffffff', k * 0.95);
+        for (let j = 0; j < 7; j++) {
+          const a = (Math.PI * 2 * j) / 7 + j * 1.7;
+          const d = (1 - k) * 22;
           ctx.beginPath();
-          ctx.arc(Math.cos(a) * d, Math.sin(a) * d, 1.8 * k + 0.6, 0, Math.PI * 2);
+          ctx.arc(Math.cos(a) * d, Math.sin(a) * d, 2.2 * k + 0.7, 0, Math.PI * 2);
           ctx.fill();
         }
       }

@@ -29,10 +29,13 @@ export function generateMap(seed: number, players: number): MapLayout {
   };
 
   // One "wedge" is designed, then rotated per player. Radii are fractions of
-  // the smaller half-axis so the layout survives any field aspect.
-  const reach = Math.min(cx, cy) - 70;
+  // each half-axis separately: using the smaller one for both packed every map
+  // into a small disc in the middle and left a third of the screen empty.
+  const radX = cx - 105;
+  const radY = cy - 95;
   const step = (Math.PI * 2) / players;
-  const spin = rng.range(0, Math.PI * 2);
+  // A duel reads best across the long axis, so its spin barely wanders.
+  const spin = players === 2 ? rng.range(-0.25, 0.25) : rng.range(0, Math.PI * 2);
 
   interface Slot { r: number; a: number; kind: NodeKind; garrison: number }
   const wedge: Slot[] = [];
@@ -68,11 +71,10 @@ export function generateMap(seed: number, players: number): MapLayout {
     const base = spin + step * p;
     for (const s of wedge) {
       const ang = base + s.a;
-      const rad = reach * s.r;
       const isHome = s.r === 0.92;
       const id = add(
-        cx + Math.cos(ang) * rad,
-        cy + Math.sin(ang) * rad * (FIELD_H / FIELD_W < 0.8 ? 0.82 : 1),
+        cx + Math.cos(ang) * radX * s.r,
+        cy + Math.sin(ang) * radY * s.r,
         s.kind,
         isHome ? p : NEUTRAL,
         isHome ? 18 : s.garrison,

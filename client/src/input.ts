@@ -3,7 +3,7 @@ import { DragPreview, Renderer } from './render.js';
 
 /** Fingers are wide: node hits get a generous margin, trails a fat corridor. */
 const NODE_MARGIN = 14;
-const TRAIL_MARGIN = 16;
+const TRAIL_MARGIN = 22;
 
 export interface InputHost {
   state(): GameState | null;
@@ -50,11 +50,20 @@ export class Input {
     const trail = hitTrail(s, w.x, w.y);
     if (!trail) return;
     this.downTrail = trail.id;
-    if (trail.owner !== this.host.you() && !trail.air) {
-      // Gnawing starts on touch and lasts exactly as long as the finger stays.
-      this.chewing = true;
-      this.host.send({ t: 'chew', p: this.host.you(), trail: trail.id });
+    if (trail.owner === this.host.you()) {
+      this.host.hint('hintOwn');
+
+      return;
     }
+    if (trail.air) {
+      // Silence here reads as a bug. Say why this one cannot be cut.
+      this.host.hint('hintAir');
+
+      return;
+    }
+    // Gnawing starts on touch and lasts exactly as long as the finger stays.
+    this.chewing = true;
+    this.host.send({ t: 'chew', p: this.host.you(), trail: trail.id });
   };
 
   private onMove = (e: PointerEvent): void => {
@@ -108,8 +117,12 @@ export class Input {
     }
     // Say why nothing happened; silence reads as a broken control.
     const me = s.players[this.host.you()];
-    if (me && me.chewing !== -1) this.host.hint('hintChew');
+    if (me && me.chewing !== -1) this.host.hint('hintBusy');
     else if (s.nodes[drag.fromNode].kind !== 'hive' && farther(s, drag.fromNode, target.id)) {
+      this.host.hint('hintRange');
+    } else if (s.trails.some((t) => t.owner === this.host.you() && t.from === drag.fromNode && t.to === target.id)) {
+      this.host.hint('hintOwn');
+    } else {
       this.host.hint('hintLink');
     }
   };
