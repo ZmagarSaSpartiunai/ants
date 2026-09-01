@@ -9,6 +9,7 @@ import {
   NEUTRAL,
   outgoing,
   Packet,
+  SPEED_FROM_STRENGTH,
   Trail,
   UNITS,
 } from '@ants/shared';
@@ -350,7 +351,9 @@ export class Renderer {
     const dy = b.y - a.y;
     const len = Math.hypot(dx, dy) || 1;
     // Interpolate between sim ticks so 20 Hz logic renders at display rate.
-    const boost = 1 + 0.33 * Math.min(1, a.count / 120);
+    const boost = UNITS[p.unit].flies
+      ? 1
+      : 1 + SPEED_FROM_STRENGTH * Math.min(1, a.count / KINDS[a.kind].cap);
     const pos = Math.min(1, p.pos + (UNITS[p.unit].speed * boost * alphaTick) / (len * 20));
     // A little sway off the line, so a file of ants is not a ruled row of dots.
     const wobble = Math.sin(p.pos * 34 + this.time * 4) * (p.air ? 2.8 : 1.6);

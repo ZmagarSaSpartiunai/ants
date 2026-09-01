@@ -1,5 +1,5 @@
 [Unit]
-Description=Мурашник — ігровий сервер
+Description=Ігровий сервер (портал: мурашник, луна)
 After=network-online.target
 Wants=network-online.target
 
@@ -9,6 +9,8 @@ Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=8787
 Environment=WEB_ROOT=%h/projects/ants/client/dist
+Environment=PORTAL_ROOT=%h/projects/ants/portal
+Environment=LUNA_ROOT=%h/projects/luna/web
 EnvironmentFile=-%h/projects/ants/.env
 ExecStart=%h/.local/node/bin/node server/dist/index.js
 Restart=always
@@ -20,6 +22,8 @@ PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=%h/projects/ants
+# Luna is read straight out of its own checkout.
+ReadOnlyPaths=%h/projects/luna
 
 [Install]
 WantedBy=default.target

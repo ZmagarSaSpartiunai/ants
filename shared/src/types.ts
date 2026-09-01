@@ -123,11 +123,15 @@ export const UNITS: Record<UnitType, UnitSpec> = {
 };
 
 /**
- * A column moves a little faster out of a strong node -- a third faster at
- * most, so it reads as momentum rather than as another rule to learn.
+ * A column on foot moves a little faster out of a strong node -- a third faster
+ * at most, so it reads as momentum rather than as another rule to learn.
+ * Measured against the node's own cap, so every kind can reach the whole bonus.
+ *
+ * Wasps are exempt. They already fly at twice walking pace, and stacking a
+ * variable bonus on top made the one unit that is supposed to be simply fast
+ * into the one whose speed you had to keep working out.
  */
 export const SPEED_FROM_STRENGTH = 0.33;
-export const SPEED_FULL_AT = 120;
 
 /** Seconds of holding before the thinnest possible trail snaps. */
 export const CHEW_BASE = 1.0;

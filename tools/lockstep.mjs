@@ -7,8 +7,8 @@
 // the server's own snapshots matches what the clients had already computed.
 //
 //   node tools/lockstep.mjs                        # against a local server
-//   ANTS_URL=ws://127.0.0.1:18787/ws node tools/lockstep.mjs
-//   ANTS_URL=wss://host/ws ANTS_COOKIE='ants_gate=...' node tools/lockstep.mjs
+//   ANTS_URL=ws://127.0.0.1:18787/ants/ws node tools/lockstep.mjs
+//   ANTS_URL=wss://host/ants/ws ANTS_COOKIE='ants_gate=...' node tools/lockstep.mjs
 //
 // Requires `npm run build` first: it imports the built simulation.
 
@@ -18,7 +18,7 @@ import { applyCommand, canLink, step } from '../shared/dist/index.js';
 const require = createRequire(import.meta.url);
 const WebSocket = require('ws');
 
-const URL = process.env.ANTS_URL ?? 'ws://127.0.0.1:8787/ws';
+const URL = process.env.ANTS_URL ?? 'ws://127.0.0.1:8787/ants/ws';
 // Needed when the deployment sits behind the development password gate.
 const COOKIE = process.env.ANTS_COOKIE ?? '';
 const SECONDS = Number(process.env.ANTS_SECONDS ?? 20);

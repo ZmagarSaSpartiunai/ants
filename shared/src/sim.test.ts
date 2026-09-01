@@ -20,6 +20,7 @@ import {
   GameState,
   KINDS,
   NEUTRAL,
+  SPEED_FROM_STRENGTH,
   TICK_HZ,
   UNITS,
   UNIT_SIZE,
@@ -556,6 +557,9 @@ test('beetles keep pace with the ants, wasps fly twice as fast', () => {
   const b = s.nodes[1];
   a.x = 100; a.y = 400; b.x = 900; b.y = 400;
   a.owner = 0;
+  // Empty, so nobody gets the strong-node bonus and this compares nothing but
+  // the units' own speeds.
+  a.count = 0;
   s.players[0].home = a.id;
   const kinds = ['worker', 'beetle', 'wasp'] as const;
   for (const unit of kinds) {
@@ -777,4 +781,38 @@ test('a level is judged on its goal, not on annihilation', () => {
   // Being knocked out loses it, whatever the goal said.
   s.players[0].alive = false;
   assert.equal(judge(s, hold, 0), 'lost');
+});
+
+test('a strong node speeds its walkers up, and leaves wasps alone', () => {
+  const reach = (kind: 'nest' | 'den' | 'hive', fill: number): number => {
+    const s = createGame(4242, 2);
+    const a = s.nodes[0];
+    const b = s.nodes[1];
+    a.x = 100; a.y = 400; b.x = 1100; b.y = 400;
+    a.kind = kind;
+    a.count = KINDS[kind].cap * fill;
+    s.packets.push({
+      owner: 0, unit: KINDS[kind].unit, amount: 1,
+      from: a.id, to: b.id, pos: 0, air: kind === 'hive', dead: false,
+    });
+    run(s, 4);
+
+    return s.packets.find((p) => p.from === a.id)!.pos;
+  };
+
+  // On foot: a full node pushes its columns along a third faster, and the
+  // bonus is measured against each kind's own cap so both reach all of it.
+  const fullNest = reach('nest', 1);
+  const emptyNest = reach('nest', 0);
+  assert.ok(
+    Math.abs(fullNest / emptyNest - (1 + SPEED_FROM_STRENGTH)) < 0.02,
+    `a full nest should be a third quicker, was ${(fullNest / emptyNest).toFixed(3)}`,
+  );
+  assert.ok(Math.abs(reach('den', 1) - fullNest) < 1e-9, 'a full den keeps pace with a full nest');
+
+  // In the air: the same speed whatever the hive is holding.
+  assert.ok(
+    Math.abs(reach('hive', 1) - reach('hive', 0)) < 1e-9,
+    'a wasp flies at one speed and no other',
+  );
 });

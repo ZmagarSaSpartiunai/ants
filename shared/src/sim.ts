@@ -21,7 +21,6 @@ import {
   Severed,
   SEVERED_TICKS,
   SPEED_FROM_STRENGTH,
-  SPEED_FULL_AT,
   Trail,
   UNITS,
   UNSUPPLIED_GROWTH,
@@ -457,9 +456,12 @@ function move(s: GameState, events: SimEvent[]): void {
     const dx = to.x - from.x;
     const dy = to.y - from.y;
     const len = Math.sqrt(dx * dx + dy * dy) || 1;
-    // Columns out of a strong node move a little quicker -- capped low, so it
-    // reads as momentum and not as another rule to learn.
-    const boost = 1 + SPEED_FROM_STRENGTH * Math.min(1, from.count / SPEED_FULL_AT);
+    // Columns on foot leave a strong node a little quicker. Wasps do not: they
+    // are the fast unit already, and a second speed rule on top of that only
+    // makes the simple one harder to read.
+    const boost = UNITS[p.unit].flies
+      ? 1
+      : 1 + SPEED_FROM_STRENGTH * Math.min(1, from.count / KINDS[from.kind].cap);
     p.pos += (UNITS[p.unit].speed * boost * DT) / len;
     if (p.pos >= 1) {
       p.dead = true;

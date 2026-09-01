@@ -93,6 +93,8 @@ export class App {
   private level: LevelDef | null = null;
   private startedAt = 0;
   private won = false;
+  /** A bot match running behind the menu, purely as a living backdrop. */
+  private demo = false;
   private wantSlots = 2;
 
   constructor(root: HTMLElement) {
@@ -125,12 +127,18 @@ export class App {
     this.renderer.resize();
     this.drawLegend();
 
-    // The game starts in gameplay, not in a menu: portals require it, and it is
-    // also the only honest way to show what the game is.
-    this.startSolo();
+    // The front door is the menu, with a bot match playing behind it so the
+    // first thing anyone sees is the game itself in motion. `?play` skips
+    // straight into a match -- that is the mode a portal build ships in, where
+    // getting to gameplay in zero clicks is what they measure.
+    if (new URLSearchParams(location.search).has('play')) {
+      this.startSolo();
+      setTimeout(() => this.say(t('hintLink')), 900);
+    } else {
+      this.startDemo();
+    }
     this.watchVisibility();
     requestAnimationFrame(this.frame);
-    setTimeout(() => this.say(t('hintLink')), 900);
   }
 
   // ---------------------------------------------------------------- game loop
@@ -164,6 +172,11 @@ export class App {
    * unbounded and then replay as one lurch on return.
    */
   private pump(dt: number): void {
+    if (this.demo) {
+      this.advanceSolo(dt);
+
+      return;
+    }
     if (this.screen !== 'game' && this.screen !== 'over') return;
     if (this.mode === 'solo') this.advanceSolo(dt);
     else this.advanceOnline(dt);
@@ -192,7 +205,8 @@ export class App {
 
   private advanceSolo(dt: number): void {
     const s = this.state;
-    if (!s || s.over) return;
+    if (!s) return;
+    if (s.over && !this.demo) return;
     this.acc += dt;
     let guard = 0;
     while (this.acc >= DT && guard++ < 8) {
@@ -255,6 +269,11 @@ export class App {
         this.renderer.addEffect('clash', e.x, e.y, '#ffffff');
         if (Math.random() < 0.25) sfx.clash();
       } else if (e.t === 'over') {
+        if (this.demo) {
+          this.startDemo(true);
+
+          return;
+        }
         if (this.mode === 'solo' && !this.level) recordMatch(e.winner === this.youId, s.tick / 20);
         this.finish(e.winner);
       }
@@ -310,6 +329,29 @@ export class App {
     this.net?.send({ t: 'cmd', cmd });
   }
 
+  /**
+   * Bots playing themselves behind the menu. Nobody is in control -- the input
+   * layer is already inert while a panel is up -- so this is only scenery, and
+   * it costs nothing that the game was not doing anyway.
+   */
+  private startDemo(keepScreen = false): void {
+    this.level = null;
+    this.demo = true;
+    const seed = (Math.random() * 0xfffff) >>> 0;
+    this.mode = 'solo';
+    this.youId = 0;
+    this.state = createGame(seed, 3);
+    this.bots = this.state.players.map((p, i) => new Bot(i, 'normal', (seed + i * 7919) >>> 0));
+    this.acc = 0;
+    this.input.reset();
+    // A backdrop match ending must not yank the player out of whatever screen
+    // they were reading.
+    if (!keepScreen) {
+      this.screen = 'menu';
+      this.render();
+    }
+  }
+
   private startSolo(): void {
     this.level = null;
     this.begin((Math.random() * 0xfffff) >>> 0, this.soloPlayers, this.soloLevel);
@@ -323,6 +365,7 @@ export class App {
   }
 
   private begin(seed: number, players: number, level: BotLevel): void {
+    this.demo = false;
     this.mode = 'solo';
     this.screen = 'game';
     this.youId = 0;
@@ -358,7 +401,7 @@ export class App {
    */
   private checkGoal(): void {
     const s = this.state;
-    if (!s || !this.level || this.screen !== 'game') return;
+    if (!s || !this.level || this.demo || this.screen !== 'game') return;
     const verdict = judge(s, this.level.goal, this.youId);
     if (verdict === 'playing') return;
     this.finishLevel(verdict === 'won');
@@ -635,8 +678,8 @@ export class App {
       .map(([code, l]) => `<option value="${code}">${l.name}</option>`)
       .join('');
     const p = this.panel(`
-      <h1>🐜 ${t('menu')}</h1>
-      <p class="sub">${t('hintSupply')}</p>
+      <h1>🐜 ${t('title')}</h1>
+      <p class="sub">${t('tagline')}</p>
       <div class="row"><label>${t('players')}</label><div class="seg" id="pc">
         ${[2, 3, 4].map((n) => `<button data-n="${n}" aria-pressed="${n === this.soloPlayers}">${n}</button>`).join('')}
       </div></div>

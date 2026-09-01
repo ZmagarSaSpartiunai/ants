@@ -17,16 +17,37 @@ const MAX_ROOMS = 500;
 const MAX_MSGS_PER_SEC = 40;
 
 /**
- * The game serves its own client. The box already runs a Caddy for the control
- * panel, but that site answers on a bare port and matches every Host, so a
- * second hostname pointed at it would serve the panel instead of the game.
- * One process, one port, and nothing to break next door.
+ * This process is the games host, not just the ants server.
+ *
+ * The box already runs a Caddy for the control panel, but that site answers on
+ * a bare port and matches every Host, so a second hostname pointed at it would
+ * serve the panel instead. One process, one port, and nothing to break next
+ * door -- and now that one process carries a small shelf of games.
+ *
+ *   /          the shelf
+ *   /ants/     this game's client
+ *   /ants/ws   this game's socket
+ *   /luna/     a self-contained single file, if it has been put there
+ *
+ * Roots are resolved against this file, not the working directory: the defaults
+ * have to hold whether the server is started from the repo root or elsewhere.
  */
-// Resolved against this file, not the working directory: the default has to
-// hold whether the server is started from the repo root or from anywhere else.
-const WEB_ROOT = resolve(
-  process.env.WEB_ROOT ?? join(dirname(fileURLToPath(import.meta.url)), '../../client/dist'),
-);
+const here = dirname(fileURLToPath(import.meta.url));
+const WEB_ROOT = resolve(process.env.WEB_ROOT ?? join(here, '../../client/dist'));
+const PORTAL_ROOT = resolve(process.env.PORTAL_ROOT ?? join(here, '../../portal'));
+const LUNA_ROOT = process.env.LUNA_ROOT ? resolve(process.env.LUNA_ROOT) : null;
+
+/** Which folder answers for this path, and what to strip off the front. */
+function route(pathname: string): { root: string; rel: string } {
+  if (pathname === '/ants' || pathname.startsWith('/ants/')) {
+    return { root: WEB_ROOT, rel: pathname.slice(5) || '/' };
+  }
+  if (LUNA_ROOT && (pathname === '/luna' || pathname.startsWith('/luna/'))) {
+    return { root: LUNA_ROOT, rel: pathname.slice(5) || '/' };
+  }
+
+  return { root: PORTAL_ROOT, rel: pathname };
+}
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -41,15 +62,16 @@ const TYPES: Record<string, string> = {
 
 function serveStatic(req: IncomingMessage, res: ServerResponse): void {
   const url = new URL(req.url ?? '/', 'http://localhost');
+  const target = route(url.pathname);
   // normalize collapses any ../ before it can escape the web root.
-  const rel = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '');
-  let file = join(WEB_ROOT, rel);
-  if (!file.startsWith(WEB_ROOT)) {
+  const rel = normalize(decodeURIComponent(target.rel)).replace(/^(\.\.[/\\])+/, '');
+  let file = join(target.root, rel);
+  if (!file.startsWith(target.root)) {
     res.writeHead(403).end();
 
     return;
   }
-  if (!existsSync(file) || statSync(file).isDirectory()) file = join(WEB_ROOT, 'index.html');
+  if (!existsSync(file) || statSync(file).isDirectory()) file = join(target.root, 'index.html');
   if (!existsSync(file)) {
     res.writeHead(404).end('not built');
 
@@ -175,7 +197,7 @@ const http = createServer((req: IncomingMessage, res: ServerResponse) => {
 
 const wss = new WebSocketServer({
   server: http,
-  path: '/ws',
+  path: '/ants/ws',
   maxPayload: 16 * 1024,
   // The gate has to cover the socket too, or the page is closed and the game
   // behind it is not.

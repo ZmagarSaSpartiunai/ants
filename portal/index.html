@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#141a10">
+<meta name="robots" content="noindex, nofollow">
+<title>Ігри</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%8E%AE%3C/text%3E%3C/svg%3E">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: #141a10;
+    color: #ece5d8;
+    font: 16px/1.5 "Segoe UI", Roboto, "Noto Sans", system-ui, -apple-system, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    display: grid;
+    place-items: center;
+    padding: max(20px, env(safe-area-inset-top)) 16px 32px;
+    background:
+      radial-gradient(circle at 30% 12%, rgba(90, 140, 60, 0.2), transparent 55%),
+      radial-gradient(circle at 78% 84%, rgba(240, 180, 41, 0.12), transparent 52%),
+      #141a10;
+  }
+  main { width: min(760px, 100%); }
+  h1 { margin: 0 0 6px; font-size: clamp(28px, 6vw, 40px); letter-spacing: 0.01em; }
+  .sub { margin: 0 0 28px; color: #9d9384; }
+
+  .shelf { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+
+  a.game {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+    background: rgba(26, 30, 20, 0.9);
+    border: 1px solid rgba(240, 180, 41, 0.2);
+    border-radius: 16px;
+    overflow: hidden;
+    transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
+  }
+  a.game:hover, a.game:focus-visible {
+    transform: translateY(-3px);
+    border-color: rgba(240, 180, 41, 0.55);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+  }
+
+  /* Each cover is drawn in CSS: no images to ship, nothing to load. */
+  .cover { height: 132px; position: relative; }
+  .cover.ants {
+    background:
+      radial-gradient(circle at 26% 30%, rgba(150, 200, 110, 0.35), transparent 60%),
+      linear-gradient(160deg, #3f6a31, #24401d);
+  }
+  .cover.luna {
+    background:
+      radial-gradient(circle at 70% 34%, rgba(196, 168, 232, 0.35), transparent 58%),
+      linear-gradient(160deg, #241d33, #100d18);
+  }
+  .cover span { position: absolute; inset: 0; display: grid; place-items: center; font-size: 54px; }
+
+  .body { padding: 15px 17px 18px; }
+  .body h2 { margin: 0 0 4px; font-size: 19px; }
+  .body p { margin: 0; color: #9d9384; font-size: 14px; }
+  .tag {
+    display: inline-block;
+    margin-top: 11px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    background: rgba(240, 180, 41, 0.16);
+    color: #ffd57a;
+  }
+  footer { margin-top: 26px; color: #6f6a60; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ігри</h1>
+  <p class="sub">Робочі збірки. Тут вони живуть, поки не поїдуть на портали.</p>
+
+  <div class="shelf">
+    <a class="game" href="/ants/">
+      <div class="cover ants"><span>🐜</span></div>
+      <div class="body">
+        <h2>Мурашник</h2>
+        <p>Війна веж, у якій можна перерізати саму стежку. Кампанія, вільна гра і кімнати на двох–чотирьох за кодом.</p>
+        <span class="tag">грається</span>
+      </div>
+    </a>
+
+    <a class="game" href="/luna/">
+      <div class="cover luna"><span>🌘</span></div>
+      <div class="body">
+        <h2>Луна</h2>
+        <p>Аркада, у якій твої власні рухи за минулі секунди оживають і починають на тебе полювати.</p>
+        <span class="tag">прототип</span>
+      </div>
+    </a>
+  </div>
+
+  <footer>Обидві гри працюють і з телефона.</footer>
+</main>
+</body>
+</html>

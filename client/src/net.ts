@@ -23,7 +23,9 @@ export class Net {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     let ws: WebSocket;
     try {
-      ws = new WebSocket(`${proto}://${location.host}/ws`);
+      // One host now carries several games, so the socket is named after this
+      // one rather than sitting on a bare /ws that the next game would want.
+      ws = new WebSocket(`${proto}://${location.host}/ants/ws`);
     } catch {
       this.onState(false, 'offline');
 

@@ -1,6 +1,10 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  // Served under /ants/ on the games host, so the bundle has to look for its
+  // own files there. Built for the root it would ask for /assets/... and get
+  // the portal's index back instead.
+  base: '/ants/',
   build: {
     target: 'es2022',
     // One bundle, everything inlined: the game must survive being dropped on a
@@ -16,6 +20,6 @@ export default defineConfig({
   server: {
     port: 5173,
     watch: { ignored: ['!**/shared/dist/**'] },
-    proxy: { '/ws': { target: 'ws://127.0.0.1:8787', ws: true } },
+    proxy: { '/ants/ws': { target: 'ws://127.0.0.1:8787', ws: true } },
   },
 });

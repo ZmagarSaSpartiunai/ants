@@ -73,6 +73,8 @@ const EN: Dict = {
   statCut: 'Trails gnawed through',
   statDelivered: 'Ants delivered',
   statTime: 'Time played',
+  title: 'Anthill',
+  tagline: 'Tower war where the trail itself can be cut',
 };
 
 const UK: Dict = {
@@ -146,6 +148,8 @@ const UK: Dict = {
   statCut: 'Прогризено стежок',
   statDelivered: 'Мурах доставлено',
   statTime: 'Часу в грі',
+  title: 'Мурашник',
+  tagline: 'Війна веж, у якій можна перерізати саму стежку',
 };
 
 const PL: Dict = {
@@ -198,6 +202,8 @@ const PL: Dict = {
   statCut: 'Przegryzione szlaki',
   statDelivered: 'Dostarczone mrówki',
   statTime: 'Czas gry',
+  title: 'Mrowisko',
+  tagline: 'Wojna wież, w której można przeciąć sam szlak',
 };
 
 const DE: Dict = {
@@ -250,6 +256,8 @@ const DE: Dict = {
   statCut: 'Pfade durchgebissen',
   statDelivered: 'Ameisen geliefert',
   statTime: 'Spielzeit',
+  title: 'Ameisenhaufen',
+  tagline: 'Tower War, in dem der Pfad selbst zerbissen wird',
 };
 
 const ES: Dict = {
@@ -302,6 +310,8 @@ const ES: Dict = {
   statCut: 'Senderos roídos',
   statDelivered: 'Hormigas entregadas',
   statTime: 'Tiempo jugado',
+  title: 'Hormiguero',
+  tagline: 'Tower war donde el sendero mismo se puede cortar',
 };
 
 const PT: Dict = {
@@ -354,6 +364,8 @@ const PT: Dict = {
   statCut: 'Trilhos roídos',
   statDelivered: 'Formigas entregues',
   statTime: 'Tempo de jogo',
+  title: 'Formigueiro',
+  tagline: 'Tower war onde o próprio trilho pode ser cortado',
 };
 
 export const LANGS: Record<string, { name: string; dict: Dict }> = {
