@@ -1,5 +1,8 @@
 import { Rng } from './rng.js';
-import { canLink, chewCost, distance, trailLoad } from './sim.js';
+import { canLink, chewCost, distance, outputRate, trailLoad } from './sim.js';
+
+/** Seconds of streaming a bot assumes when judging whether a target falls. */
+const ASSAULT_WINDOW = 9;
 import {
   Command,
   DT,
@@ -7,7 +10,6 @@ import {
   GameState,
   KINDS,
   UNITS,
-  LINK_SURGE,
   NEUTRAL,
   Trail,
 } from './types.js';
@@ -98,9 +100,9 @@ export class Bot {
 
     for (const from of mine) {
       const spec = KINDS[from.kind];
-      // A surge costs most of the garrison, so only spend one that is worth
-      // spending -- and keep enough behind to survive the counterattack.
-      if (from.count < spec.cap * (1 - this.spec.commit)) continue;
+      // Output rises with the garrison, so even a small node contributes; it
+      // just has to have something in it worth streaming.
+      if (from.count < 5) continue;
       const air = from.kind === 'hive';
 
       for (const to of s.nodes) {
@@ -140,17 +142,16 @@ export class Bot {
       return score;
     }
 
-    // What an attack is worth now: the surge, plus whatever is already on its
-    // way. A single trail no longer takes a defended node -- its trickle only
-    // matches the defender's production -- so the bot has to pile on, exactly
-    // as a player has to.
+    // An attack is a stream, not a single blow: what matters is how much this
+    // node can deliver over the next few seconds, plus what is already walking.
     const inbound = s.packets.reduce(
       (acc, p) => (p.to === to.id && p.owner === this.player ? acc + p.amount * UNITS[p.unit].power : acc),
       0,
     );
     const feeding = s.trails.filter((t) => t.to === to.id && t.owner === this.player).length;
-    const attack = from.count * LINK_SURGE * UNITS[KINDS[from.kind].unit].power + inbound;
-    score = attack > to.count ? 2.4 : 0.2 - (to.count - attack) / 14;
+    const power = UNITS[KINDS[from.kind].unit].power;
+    const attack = outputRate(s, from) * ASSAULT_WINDOW * power + inbound;
+    score = attack > to.count ? 2.4 : 0.2 - (to.count - attack) / 20;
     // Concentration is the whole answer to a defended node, so reward joining
     // an assault already under way -- but not past the point of overkill.
     if (feeding > 0 && feeding < 3) score += 1.6;
@@ -229,10 +230,11 @@ export class Bot {
       const from = s.nodes[t.from];
       if (!to || !from) continue;
       let score = 0;
-      // Feeding a node that is already overflowing wastes the whole output.
-      if (to.owner === this.player && to.count >= KINDS[to.kind].cap * 1.2) score = 1.4;
-      // A spent source: free the slot so it can surge again once it refills.
-      if (from.count < KINDS[from.kind].cap * 0.3) score = Math.max(score, 1.1);
+      // A full node with nowhere to forward to throws the whole stream away.
+      const onward = s.trails.some((x) => x.from === to.id);
+      if (to.owner === this.player && to.count >= KINDS[to.kind].cap && !onward) score = 1.4;
+      // A source with nothing in it is barely producing; the slot is better spent.
+      if (from.count < 3) score = Math.max(score, 0.9);
       if (score > 0) out.push({ cmd: { t: 'unlink', p: this.player, trail: t.id }, score });
     }
 

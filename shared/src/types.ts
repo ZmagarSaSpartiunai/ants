@@ -17,9 +17,17 @@ export type NodeKind = 'nest' | 'den' | 'hive';
 
 export interface KindSpec {
   unit: UnitType;
+  /** Units per second sent down trails even from an empty node. */
+  outBase: number;
+  /** Extra units per second for each ant in the garrison. */
+  outPer: number;
   /** Units per second while supplied. */
   growth: number;
-  /** Growth stops here. Deliveries may still stack above it. */
+  /**
+   * Hard ceiling. A node grows towards it slowly and fills it fast when columns
+   * arrive, so stacking a nest up is worth doing: a big garrison is both a wall
+   * and the size of the punch it can throw.
+   */
   cap: number;
   /**
    * Trails this node may feed at once. This is the only limit on building:
@@ -32,29 +40,29 @@ export interface KindSpec {
 }
 
 /**
- * A nest must visibly count up: at 2.2 a second the number on it changes every
- * 0.45 s, which is what makes growth readable at a glance. The first numbers
- * grew at 1.1 and the game looked completely static.
+ * Growth is deliberately slow -- a nest gains about one ant every three
+ * seconds. The garrison is a stockpile you build up over a whole match, not a
+ * bar that refills between attacks, which is why the caps are in the hundreds.
  *
- * There is deliberately no separate drain figure. A running trail exports
- * exactly what the node produces, so holding a trail open never empties the
- * node that owns it: its number only falls when somebody attacks it, or when
- * its supply is cut and there is no production left to export.
+ * Output is what a node sends down its trails, and it never comes out of the
+ * garrison. `outBase` is what even an empty node produces; `outPer` is the
+ * extra per ant standing in it. A nest at 150 pushes about 7.5 a second, one at
+ * 20 about 1.7 -- so stacking a nest up is what makes it dangerous, while the
+ * stack itself stays put as the wall an attacker has to break.
  *
- * An earlier version pulled several times faster than a node grew, and every
- * node a player touched drained itself to zero. Watching your own nest bleed
- * out with no enemy in sight reads as a broken game, and it was.
+ * Output has to be this high for a reason: there is no clock, so a match must
+ * end on its own. A garrison is refilled by reinforcement exactly as fast as an
+ * attacker empties it, so the only thing that can decide a front is bringing
+ * more streams to bear than the defender can answer. Weaker output was measured
+ * leaving three to eight matches in thirty running forever.
  *
  * Rerun `node tools/balance.mjs` after changing any rule -- these numbers only
- * hold for the rules they were measured against. Dropping the reach and
- * obstacle rule and the shared trail budget changed them completely: matches
- * went from routinely running out the clock to finishing on their own in about
- * a hundred seconds, none reaching the limit.
+ * hold for the rules they were measured against.
  */
 export const KINDS: Record<NodeKind, KindSpec> = {
-  nest: { unit: 'worker', growth: 3.2, cap: 24, links: 3, radius: 30 },
-  den: { unit: 'beetle', growth: 0.75, cap: 10, links: 2, radius: 27 },
-  hive: { unit: 'wasp', growth: 0.6, cap: 7, links: 1, radius: 25 },
+  nest: { unit: 'worker', growth: 0.34, cap: 150, outBase: 2.0, outPer: 0.9, links: 3, radius: 30 },
+  den: { unit: 'beetle', growth: 0.16, cap: 120, outBase: 0.56, outPer: 0.225, links: 2, radius: 27 },
+  hive: { unit: 'wasp', growth: 0.13, cap: 100, outBase: 0.5, outPer: 0.162, links: 1, radius: 25 },
 };
 
 export interface UnitSpec {
@@ -63,10 +71,13 @@ export interface UnitSpec {
   /** Multiplier when hitting an enemy node. */
   power: number;
   /**
-   * Weight in a head-on clash. Two columns meet, each side's strength is
-   * amount * toughness, the weaker column is wiped and the stronger keeps the
-   * difference. A beetle at 4 therefore walks through three workers -- that is
-   * "breaks through" expressed as a number instead of a special case.
+   * Weight in a head-on clash and against a garrison. Two columns meet, each
+   * side's strength is amount * toughness, the weaker column is wiped and the
+   * stronger keeps the difference.
+   *
+   * One beetle is worth exactly two workers: it kills the first and walks on,
+   * and the second takes it with them. Wasps weigh the same as workers -- what
+   * they buy is reach, not force.
    */
   toughness: number;
   /** Ignores trails entirely: flies straight, cannot be cut. */
@@ -74,10 +85,17 @@ export interface UnitSpec {
 }
 
 export const UNITS: Record<UnitType, UnitSpec> = {
-  worker: { speed: 95, power: 1, toughness: 1, flies: false },
-  beetle: { speed: 48, power: 2.2, toughness: 4, flies: false },
-  wasp: { speed: 145, power: 1.5, toughness: 1, flies: true },
+  worker: { speed: 52, power: 1, toughness: 1, flies: false },
+  beetle: { speed: 30, power: 2, toughness: 2, flies: false },
+  wasp: { speed: 78, power: 1, toughness: 1, flies: true },
 };
+
+/**
+ * A column moves a little faster out of a strong node -- a third faster at
+ * most, so it reads as momentum rather than as another rule to learn.
+ */
+export const SPEED_FROM_STRENGTH = 0.33;
+export const SPEED_FULL_AT = 120;
 
 /** Seconds of holding before the thinnest possible trail snaps. */
 export const CHEW_BASE = 1.0;
@@ -87,12 +105,21 @@ export const CHEW_PER_UNIT = 0.22;
 export const CHEW_MAX = 9.0;
 
 /**
- * A trail emits one column per this many seconds. Longer than it looks like it
- * should be, on purpose: at a quarter second the columns were half an ant each,
- * and a node sitting at zero changed hands several times a second. Fewer,
- * heavier columns are both calmer to watch and far less twitchy to own.
+ * The flow model.
+ *
+ * A node's number is its garrison: its strength, and the wall an attacker has
+ * to get through. **Sending never spends it.** What walks down a trail is what
+ * the node produces, and the garrison only ever falls when an enemy column
+ * actually arrives.
+ *
+ * Output is not fixed, though -- it grows with the garrison. That is what makes
+ * stacking a nest up worth doing: a big nest is both a thick wall and a wide
+ * stream, without the stream eating the wall.
+ *
+ * Columns leave in pulses rather than as a steady dribble, so an attack is
+ * something you can watch land and a defender can see their number drop.
  */
-export const PACKET_INTERVAL = 0.55;
+export const PULSE_INTERVAL = 1.2;
 
 /**
  * A freshly taken node starts with at least this much, even if the column that
@@ -101,26 +128,6 @@ export const PACKET_INTERVAL = 0.55;
  * fought over.
  */
 export const CAPTURE_FOOTHOLD = 1.5;
-
-/**
- * Matches are timed, and that is a rule rather than a safety net. Cutting
- * supply is deliberately an answer to a stronger opponent, so this game does
- * not snowball into a wipe the way the genre usually does -- somebody can
- * almost always hold a corner. Whoever holds more of the board when the clock
- * runs out has won it: most nodes, then most ants.
- */
-export const MATCH_LIMIT_TICKS = TICK_HZ * 180;
-
-/**
- * A running trail carries this share of what its node produces. Deliberately
- * below 1: at exactly 1 an attacking trickle matched the defender's regrowth
- * exactly, so contested nodes sat pinned at zero and changed hands on every
- * single column -- two hundred captures a match, and no progress for anyone.
- *
- * Below 1 a node holding trails open still creeps upward, so nothing drains
- * itself, and taking a defended node needs more than one trail pointed at it.
- */
-export const EXPORT_RATIO = 0.7;
 
 /**
  * What a node still produces when its supply chain is broken. Cutting used to
@@ -133,19 +140,6 @@ export const EXPORT_RATIO = 0.7;
  */
 export const UNSUPPLIED_GROWTH = 0.35;
 
-/**
- * Opening a trail sends this share of the garrison at once. This surge is the
- * attack: the steady trickle afterwards is only the node's production, so
- * taking anything defended means committing a stack, not waiting.
- */
-export const LINK_SURGE = 0.6;
-
-/**
- * A node will not surge again this soon, or a player could tap a trail off and
- * on to pour out the whole garrison in a second.
- */
-export const SURGE_COOLDOWN = TICK_HZ * 5;
-
 /** Un-held chewing bleeds off this many times faster than it accumulates, so a
  *  trail cannot be worn down in unattended nibbles. */
 export const CHEW_DECAY = 2.5;
@@ -157,8 +151,14 @@ export interface GameNode {
   kind: NodeKind;
   owner: number;
   count: number;
-  /** Tick of the last outgoing surge, so surges cannot be spammed. */
-  surgeAt: number;
+  /** Tick of this node's last outgoing pulse. */
+  pulseAt: number;
+  /**
+   * Arrivals that would have pushed the garrison past its cap. A full node
+   * passes them straight on down its own trails instead of wasting them, which
+   * is what makes a chain of nests worth building.
+   */
+  carry: number;
 }
 
 export interface Trail {
@@ -172,9 +172,6 @@ export interface Trail {
   air: boolean;
   /** Seconds of chewing already sunk into this trail. */
   chew: number;
-  /** Fractional carry so slow drains still emit whole packets. */
-  pending: number;
-  emit: number;
 }
 
 export interface Packet {

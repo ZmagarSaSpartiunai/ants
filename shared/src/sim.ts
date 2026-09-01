@@ -6,17 +6,16 @@ import {
   CHEW_PER_UNIT,
   Command,
   DT,
-  EXPORT_RATIO,
   GameNode,
   GameState,
   KINDS,
-  LINK_SURGE,
-  MATCH_LIMIT_TICKS,
   NEUTRAL,
   Packet,
-  PACKET_INTERVAL,
+  PULSE_INTERVAL,
   PlayerState,
-  SURGE_COOLDOWN,
+  TICK_HZ,
+  SPEED_FROM_STRENGTH,
+  SPEED_FULL_AT,
   Trail,
   UNITS,
   UNSUPPLIED_GROWTH,
@@ -182,20 +181,11 @@ export function applyCommand(s: GameState, cmd: Command): boolean {
       len: distance(from, to),
       air: from.kind === 'hive',
       chew: 0,
-      pending: 0,
-      emit: 0,
     };
-    // The surge is the attack. Afterwards the trail only carries production,
-    // so committing a stack is a decision, not something that happens to you.
-    if (s.tick - from.surgeAt >= SURGE_COOLDOWN) {
-      const surge = from.count * LINK_SURGE;
-      if (surge > 0.01) {
-        from.count -= surge;
-        trail.pending += surge;
-        from.surgeAt = s.tick;
-      }
-    }
     s.trails.push(trail);
+    // Let this node pulse on the next tick rather than waiting out its cycle:
+    // a trail that does nothing for a second reads as a trail that failed.
+    from.pulseAt = s.tick - Math.round(PULSE_INTERVAL * TICK_HZ);
 
     return true;
   }
@@ -284,7 +274,7 @@ export function step(s: GameState): SimEvent[] {
   recomputeSupply(s);
   grow(s);
   chew(s, events);
-  drain(s);
+  pulse(s);
   move(s, events);
   clash(s, events);
   sweep(s);
@@ -344,40 +334,53 @@ function chew(s: GameState, events: SimEvent[]): void {
   }
 }
 
-function drain(s: GameState): void {
-  // A node exports a little less than it produces, split across its trails, so
-  // it always creeps upward while feeding them. The only thing that lowers a
-  // number is an enemy column.
-  const outCount = new Map<number, number>();
-  for (const t of s.trails) outCount.set(t.from, (outCount.get(t.from) ?? 0) + 1);
+/** Units per second this node sends down its trails, garrison untouched. */
+export function outputRate(s: GameState, n: GameNode): number {
+  if (n.owner === NEUTRAL) return 0;
+  const spec = KINDS[n.kind];
+  const base = spec.outBase + n.count * spec.outPer;
 
+  return base * (s.supplied[n.id] ? 1 : UNSUPPLIED_GROWTH);
+}
+
+/**
+ * Send a column down each trail. The garrison is never touched here: what
+ * leaves is production, plus anything that arrived while the node was already
+ * full and had nowhere to go but onward.
+ */
+function pulse(s: GameState): void {
+  const period = Math.round(PULSE_INTERVAL * TICK_HZ);
+  const byNode = new Map<number, Trail[]>();
   for (const t of s.trails) {
-    const from = s.nodes[t.from];
-    const spec = KINDS[from.kind];
-    // Derived from what the node is actually producing, not from its kind's
-    // nominal figure: a cut node exports less, exactly as it makes less.
-    const share = (growthRate(s, from) * EXPORT_RATIO) / (outCount.get(t.from) ?? 1);
-    const amount = Math.min(from.count, share * DT);
-    if (amount > 0) {
-      from.count -= amount;
-      t.pending += amount;
+    let list = byNode.get(t.from);
+    if (!list) byNode.set(t.from, (list = []));
+    list.push(t);
+  }
+
+  for (const n of s.nodes) {
+    const trails = byNode.get(n.id);
+    if (!trails) {
+      // Nothing to pass overflow into, so it is simply lost.
+      n.carry = 0;
+      continue;
     }
-    t.emit += DT;
-    if (t.emit >= PACKET_INTERVAL) {
-      t.emit -= PACKET_INTERVAL;
-      if (t.pending > 0.01) {
-        s.packets.push({
-          owner: t.owner,
-          unit: spec.unit,
-          amount: t.pending,
-          from: t.from,
-          to: t.to,
-          pos: 0,
-          air: t.air,
-          dead: false,
-        });
-        t.pending = 0;
-      }
+    if (s.tick - n.pulseAt < period) continue;
+    n.pulseAt = s.tick;
+    const total = outputRate(s, n) * PULSE_INTERVAL + n.carry;
+    n.carry = 0;
+    if (total <= 0.01) continue;
+    const each = total / trails.length;
+    for (const t of trails) {
+      s.packets.push({
+        owner: t.owner,
+        unit: KINDS[n.kind].unit,
+        amount: each,
+        from: t.from,
+        to: t.to,
+        pos: 0,
+        air: t.air,
+        dead: false,
+      });
     }
   }
 }
@@ -390,7 +393,10 @@ function move(s: GameState, events: SimEvent[]): void {
     const dx = to.x - from.x;
     const dy = to.y - from.y;
     const len = Math.sqrt(dx * dx + dy * dy) || 1;
-    p.pos += (UNITS[p.unit].speed * DT) / len;
+    // Columns out of a strong node move a little quicker -- capped low, so it
+    // reads as momentum and not as another rule to learn.
+    const boost = 1 + SPEED_FROM_STRENGTH * Math.min(1, from.count / SPEED_FULL_AT);
+    p.pos += (UNITS[p.unit].speed * boost * DT) / len;
     if (p.pos >= 1) {
       p.dead = true;
       arrive(s, p, events);
@@ -401,8 +407,13 @@ function move(s: GameState, events: SimEvent[]): void {
 function arrive(s: GameState, p: Packet, events: SimEvent[]): void {
   const node = s.nodes[p.to];
   if (node.owner === p.owner) {
-    // Deliveries may stack above the cap; only growth stops there.
-    node.count += p.amount;
+    const cap = KINDS[node.kind].cap;
+    const room = Math.max(0, cap - node.count);
+    const taken = Math.min(room, p.amount);
+    node.count += taken;
+    // A full node forwards the rest down its own trails instead of wasting it.
+    // This is what makes a chain of nests worth building.
+    node.carry += p.amount - taken;
     events.push({ t: 'delta', node: node.id, amount: p.amount, hostile: false, by: p.owner });
 
     return;
@@ -419,7 +430,13 @@ function arrive(s: GameState, p: Packet, events: SimEvent[]): void {
 
   const lost = node.owner;
   node.owner = p.owner;
-  node.count = Math.max(CAPTURE_FOOTHOLD, (damage - node.count) / power);
+  // Clamped to the cap like any other arrival. Without this a big column
+  // landing on a thin garrison installed itself as a garrison far past the
+  // ceiling, and stacks ran into the thousands.
+  const survivors = (damage - node.count) / power;
+  const cap = KINDS[node.kind].cap;
+  node.count = Math.min(cap, Math.max(CAPTURE_FOOTHOLD, survivors));
+  node.carry += Math.max(0, survivors - cap);
   events.push({ t: 'capture', node: node.id, by: p.owner, lost });
   onCapture(s, node, lost, events);
 }
@@ -546,38 +563,4 @@ function checkEnd(s: GameState, events: SimEvent[]): void {
     return;
   }
 
-  if (s.tick >= MATCH_LIMIT_TICKS) {
-    s.over = true;
-    s.winner = leader(s, alive);
-    events.push({ t: 'over', winner: s.winner });
-  }
-}
-
-/** Who is ahead on the board: nodes first, ants only to break a tie. */
-function leader(s: GameState, alive: PlayerState[]): number {
-  let best = NEUTRAL;
-  let bestNodes = -1;
-  let bestForce = -1;
-  for (const p of alive) {
-    let nodes = 0;
-    let force = 0;
-    for (const n of s.nodes) {
-      if (n.owner !== p.id) continue;
-      nodes++;
-      force += n.count;
-    }
-    if (nodes > bestNodes || (nodes === bestNodes && force > bestForce)) {
-      // An exact tie leaves the previous leader in place, which is why the
-      // comparison is strict: a drawn match reports NEUTRAL.
-      if (nodes === bestNodes && force === bestForce) {
-        best = NEUTRAL;
-        continue;
-      }
-      best = p.id;
-      bestNodes = nodes;
-      bestForce = force;
-    }
-  }
-
-  return best;
 }

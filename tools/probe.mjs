@@ -1,23 +1,14 @@
 // Why does a match stall? Track what each side actually manages to do.
-import { createGame, applyCommand, step, TICK_HZ, Bot, canLink, blockedBy, LINK_RANGE, distance } from '../shared/dist/index.js';
+import { createGame, applyCommand, step, TICK_HZ, Bot, canLink, distance, outputRate, KINDS } from '../shared/dist/index.js';
 
 const s = createGame(Number(process.env.SEED ?? 205), Number(process.env.N ?? 2));
 const bots = s.players.map((p, i) => new Bot(i, 'normal', i + 1));
 
 // How constrained is the opening board?
-let pairs = 0, tooFar = 0, blocked = 0, ok = 0;
-for (const a of s.nodes) for (const b of s.nodes) {
-  if (a.id === b.id || a.kind === 'hive') continue;
-  pairs++;
-  if (distance(a, b) > LINK_RANGE) { tooFar++; continue; }
-  if (blockedBy(s, a.id, b.id)) { blocked++; continue; }
-  ok++;
-}
-console.log(`наземних пар: ${pairs} | задалеко ${tooFar} | перекрито ${blocked} | доступно ${ok}`);
-
 const home = s.nodes[s.players[0].home];
+console.log(`домівка: ${Math.round(home.count)} мурах, потік ${outputRate(s, home).toFixed(2)}/с`);
 const reach = s.nodes.filter((n) => n.id !== home.id && canLink(s, 0, home.id, n.id));
-console.log(`з домівки доступно вузлів: ${reach.length} -> ${reach.map((n) => n.id).join(',')}`);
+console.log(`доступних цілей: ${reach.length}, їхні гарнізони: ${reach.map((n) => Math.round(n.count)).join(',')}`);
 
 let clashes = 0, captures = 0;
 for (let i = 0; i < 300 * TICK_HZ; i++) {

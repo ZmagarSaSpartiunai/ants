@@ -24,7 +24,7 @@ export function generateMap(seed: number, players: number): MapLayout {
 
   const add = (x: number, y: number, kind: NodeKind, owner: number, count: number): number => {
     const id = nodes.length;
-    nodes.push({ id, x: Math.round(x), y: Math.round(y), kind, owner, count, surgeAt: -9999 });
+    nodes.push({ id, x: Math.round(x), y: Math.round(y), kind, owner, count, pulseAt: -9999, carry: 0 });
     return id;
   };
 
@@ -43,10 +43,10 @@ export function generateMap(seed: number, players: number): MapLayout {
   // The home nest sits on the rim.
   wedge.push({ r: 0.92, a: 0, kind: 'nest', garrison: 0 });
   // Two cheap nests flanking it: the first thing anyone takes.
-  wedge.push({ r: 0.66, a: step * rng.range(0.18, 0.26), kind: 'nest', garrison: Math.round(rng.range(4, 8)) });
-  wedge.push({ r: 0.66, a: -step * rng.range(0.18, 0.26), kind: 'nest', garrison: Math.round(rng.range(4, 8)) });
+  wedge.push({ r: 0.66, a: step * rng.range(0.18, 0.26), kind: 'nest', garrison: Math.round(rng.range(10, 18)) });
+  wedge.push({ r: 0.66, a: -step * rng.range(0.18, 0.26), kind: 'nest', garrison: Math.round(rng.range(10, 18)) });
   // A contested nest halfway to the middle.
-  wedge.push({ r: 0.40, a: step * rng.range(-0.12, 0.12), kind: 'nest', garrison: Math.round(rng.range(10, 16)) });
+  wedge.push({ r: 0.40, a: step * rng.range(-0.12, 0.12), kind: 'nest', garrison: Math.round(rng.range(24, 40)) });
 
   // Specials are what makes two maps play differently, so they are rolled.
   const denCount = 1 + rng.int(2);
@@ -55,7 +55,7 @@ export function generateMap(seed: number, players: number): MapLayout {
       r: rng.range(0.5, 0.78),
       a: step * (rng.next() < 0.5 ? rng.range(0.3, 0.46) : -rng.range(0.3, 0.46)),
       kind: 'den',
-      garrison: Math.round(rng.range(6, 10)),
+      garrison: Math.round(rng.range(16, 26)),
     });
   }
   if (rng.next() < 0.75) {
@@ -63,7 +63,7 @@ export function generateMap(seed: number, players: number): MapLayout {
       r: rng.range(0.22, 0.5),
       a: step * rng.range(-0.4, 0.4),
       kind: 'hive',
-      garrison: Math.round(rng.range(5, 9)),
+      garrison: Math.round(rng.range(14, 24)),
     });
   }
 
@@ -77,14 +77,14 @@ export function generateMap(seed: number, players: number): MapLayout {
         cy + Math.sin(ang) * radY * s.r,
         s.kind,
         isHome ? p : NEUTRAL,
-        isHome ? 18 : s.garrison,
+        isHome ? 30 : s.garrison,
       );
       if (isHome) homes[p] = id;
     }
   }
 
   // The centre is the prize: a fat neutral nest everyone can see.
-  add(cx, cy, players === 2 ? 'hive' : 'nest', NEUTRAL, players === 2 ? 10 : 24);
+  add(cx, cy, players === 2 ? 'hive' : 'nest', NEUTRAL, players === 2 ? 26 : 55);
 
   spread(nodes);
 

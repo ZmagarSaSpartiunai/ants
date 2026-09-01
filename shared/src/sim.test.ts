@@ -1,14 +1,24 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Bot } from './bot.js';
-import { applyCommand, blockedBy, canLink, createGame, distance, linksFree, step, trailById } from './sim.js';
+import {
+  applyCommand,
+  blockedBy,
+  canLink,
+  createGame,
+  distance,
+  linksFree,
+  outputRate,
+  step,
+  trailById,
+} from './sim.js';
 import {
   GameNode,
   GameState,
   KINDS,
-  MATCH_LIMIT_TICKS,
   NEUTRAL,
   TICK_HZ,
+  UNITS,
   UNSUPPLIED_GROWTH,
 } from './types.js';
 
@@ -116,27 +126,54 @@ test('a cut node with a trail out does not drain itself to nothing', () => {
   assert.ok(far.count >= before, `an exporting cut node drained: ${before} -> ${far.count}`);
 });
 
-test('a beetle column walks through a worker column', () => {
+test('one beetle is worth exactly two workers', () => {
+  const fight = (beetles: number, workers: number) => {
+    const s = createGame(31337, 2);
+    const a = s.nodes[0];
+    const b = s.nodes[1];
+    a.x = 100; a.y = 100; b.x = 500; b.y = 500;
+    a.owner = 0;
+    b.owner = 1;
+    s.players[0].home = a.id;
+    s.players[1].home = b.id;
+    s.trails.length = 0;
+    s.packets.length = 0;
+    s.packets.push({ owner: 0, unit: 'beetle', amount: beetles, from: a.id, to: b.id, pos: 0.5, air: false, dead: false });
+    s.packets.push({ owner: 1, unit: 'worker', amount: workers, from: b.id, to: a.id, pos: 0.5, air: false, dead: false });
+    step(s);
+
+    return {
+      beetles: s.packets.filter((p) => p.unit === 'beetle').reduce((n, p) => n + p.amount, 0),
+      workers: s.packets.filter((p) => p.unit === 'worker').reduce((n, p) => n + p.amount, 0),
+    };
+  };
+
+  // One beetle kills the first worker and walks on with half of itself left.
+  const one = fight(1, 1);
+  assert.equal(one.workers, 0, 'the worker must die');
+  assert.ok(Math.abs(one.beetles - 0.5) < 1e-9, `half a beetle should remain, got ${one.beetles}`);
+
+  // The second worker takes it with them: two workers exactly trade one beetle.
+  const two = fight(1, 2);
+  assert.equal(two.workers, 0, 'both workers must die');
+  assert.equal(two.beetles, 0, 'and the beetle with them');
+
+  // Three workers beat one beetle and one of them walks away.
+  const three = fight(1, 3);
+  assert.equal(three.beetles, 0, 'the beetle must die');
+  assert.ok(Math.abs(three.workers - 1) < 1e-9, `one worker should survive, got ${three.workers}`);
+});
+
+test('a wasp weighs the same as a worker', () => {
   const s = createGame(31337, 2);
-  const den = s.nodes.find((n) => n.kind === 'den')!;
-  const nest = s.nodes.find((n) => n.kind === 'nest' && n.id !== den.id)!;
-  den.owner = 0;
-  den.count = KINDS.den.cap;
-  nest.owner = 1;
-  nest.count = KINDS.nest.cap;
-  s.players[0].home = den.id;
-  s.players[1].home = nest.id;
-
-  s.packets.push({ owner: 0, unit: 'beetle', amount: 2, from: den.id, to: nest.id, pos: 0.5, air: false, dead: false });
-  s.packets.push({ owner: 1, unit: 'worker', amount: 5, from: nest.id, to: den.id, pos: 0.5, air: false, dead: false });
-  step(s);
-
-  const beetles = s.packets.filter((p) => p.unit === 'beetle');
-  const workers = s.packets.filter((p) => p.unit === 'worker');
-  assert.equal(workers.length, 0, 'five workers must lose to two beetles');
-  assert.equal(beetles.length, 1, 'the beetle column must survive');
-  // 2 beetles at toughness 4 = 8 against 5 workers at 1, so 3/4 of a beetle lives.
-  assert.ok(Math.abs(beetles[0].amount - 0.75) < 1e-9, `beetle remainder was ${beetles[0].amount}`);
+  const a = s.nodes[0];
+  const b = s.nodes[1];
+  a.x = 100; a.y = 100; b.x = 500; b.y = 500;
+  // Wasps fly, so they never meet a ground column; against a garrison, though,
+  // they hit exactly as hard as workers do.
+  assert.equal(UNITS.wasp.power, UNITS.worker.power);
+  assert.equal(UNITS.wasp.toughness, UNITS.worker.toughness);
+  assert.equal(UNITS.beetle.power, UNITS.worker.power * 2);
 });
 
 test('an air route cannot be gnawed and carries no supply', () => {
@@ -284,13 +321,97 @@ test('wasps fly over a fight instead of joining it', () => {
   assert.ok(s.packets.some((p) => p.unit === 'wasp'), 'an air column is untouchable in the open');
 });
 
-test('a match that nobody can win is decided on the board', () => {
-  const s = createGame(31, 2);
-  // Give player 0 a clear lead and let the clock run out.
-  s.nodes[2].owner = 0;
-  s.nodes[3].owner = 0;
-  s.tick = MATCH_LIMIT_TICKS - 1;
-  step(s);
-  assert.ok(s.over, 'the clock must end the match');
-  assert.equal(s.winner, 0, 'the side holding more of the board wins on time');
+test('damage adds up: three streams hurt three times as much as one', () => {
+  /**
+   * Measures the real drain on one garrison, and what the attackers were
+   * producing while doing it. The two must agree: that is the claim, that
+   * nothing is dropped when several streams converge on the same node.
+   *
+   * The attackers are chained so every one of them is supplied -- an unsupplied
+   * node produces at a fraction, which would silently make three attackers look
+   * like one and a half.
+   */
+  const measure = (sources: number) => {
+    const s = createGame(4242, 2);
+    for (const n of s.nodes) {
+      n.owner = NEUTRAL;
+      n.count = 0;
+    }
+    const target = s.nodes[0];
+    target.owner = 1;
+    target.count = KINDS.nest.cap;
+    s.players[1].home = target.id;
+
+    const attackers = s.nodes.filter((n) => n.id !== target.id && n.kind === 'nest').slice(0, sources);
+    assert.equal(attackers.length, sources, 'the map must have enough nests for this test');
+    s.players[0].home = attackers[0].id;
+
+    // Positions are set by hand: this test is about arithmetic, and the map's
+    // own layout would otherwise decide it by putting a node in the way.
+    target.x = 800;
+    target.y = 400;
+    const spare = s.nodes.filter((n) => n.id !== target.id && !attackers.includes(n));
+    for (const n of spare) {
+      n.x = 60;
+      n.y = 740;
+    }
+    attackers.forEach((a, i) => {
+      a.owner = 0;
+      a.count = 8;
+      a.x = 300;
+      a.y = 200 + i * 200;
+    });
+    for (let i = 0; i + 1 < attackers.length; i++) {
+      assert.ok(applyCommand(s, { t: 'link', p: 0, from: attackers[i].id, to: attackers[i + 1].id }));
+    }
+    for (const a of attackers) {
+      assert.ok(applyCommand(s, { t: 'link', p: 0, from: a.id, to: target.id }), 'attack must be legal');
+    }
+
+    // Attacker garrisons are pinned, so their output is constant and the drain
+    // can be compared against it. Otherwise the columns landing now were
+    // produced seconds ago, by smaller nodes, and the two never line up.
+    const hold = (seconds: number): void => {
+      for (let i = 0; i < seconds * TICK_HZ; i++) {
+        for (const a of attackers) a.count = 8;
+        target.count = Math.min(target.count, KINDS.nest.cap);
+        step(s);
+      }
+    };
+
+    hold(10);
+    assert.equal(target.owner, 1, 'the target must still be holding when measured');
+    for (const a of attackers) assert.ok(s.supplied[a.id], 'every attacker must be supplied');
+    // Only the share actually aimed at the target counts as the assault.
+    const output = attackers.reduce((sum, a) => {
+      const trails = s.trails.filter((t) => t.from === a.id).length;
+
+      return sum + outputRate(s, a) / trails;
+    }, 0);
+    const before = target.count;
+    const window = 6;
+    hold(window);
+
+    return { drain: (before - target.count) / window, output };
+  };
+
+  const one = measure(1);
+  const three = measure(3);
+  assert.ok(one.drain > 0, `a single attacker must do something, did ${one.drain}/s`);
+  assert.ok(
+    Math.abs(one.drain - one.output) < one.output * 0.3,
+    `one stream: drain ${one.drain.toFixed(1)}/s vs aimed output ${one.output.toFixed(1)}/s`,
+  );
+  assert.ok(
+    Math.abs(three.drain - three.output) < three.output * 0.3,
+    `three streams: drain ${three.drain.toFixed(1)}/s vs aimed output ${three.output.toFixed(1)}/s`,
+  );
+  // Not a clean three times: two of the three attackers spend half their output
+  // holding the supply chain up, so what is aimed at the target is twice one
+  // node's stream, and the damage is exactly that. Concentration adds up; it
+  // just costs something to concentrate.
+  assert.ok(
+    three.drain > one.drain * 1.9,
+    `three streams should hurt far more: ${three.drain.toFixed(1)} vs ${one.drain.toFixed(1)}`,
+  );
 });

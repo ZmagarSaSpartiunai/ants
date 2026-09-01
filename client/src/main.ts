@@ -6,7 +6,6 @@ import {
   Command,
   createGame,
   DT,
-  MATCH_LIMIT_TICKS,
   GameState,
   NEUTRAL,
   RoomPlayer,
@@ -414,14 +413,10 @@ export class App {
       })
       .join('');
     this.legend.hidden = false;
-    const left = Math.max(0, MATCH_LIMIT_TICKS - s.tick) / 20;
-    const clock = `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
-    // No global trail counter any more: the limit lives on each node, and is
-    // drawn there as dots, which is the only place it can be acted on.
-    const html =
-      `<div class="pips">${pips}</div>` +
-      `<div class="pip${left < 30 ? ' urgent' : ''}">${clock}</div>` +
-      `<button id="menuBtn">${t('menu')}</button>`;
+    // No clock and no trail counter: a match ends when someone has taken the
+    // board, and the trail limit lives on each node as dots, where it can
+    // actually be acted on.
+    const html = `<div class="pips">${pips}</div><button id="menuBtn">${t('menu')}</button>`;
     if (this.hud.innerHTML !== html) {
       this.hud.innerHTML = html;
       this.hud.querySelector('#menuBtn')!.addEventListener('click', () => {
@@ -604,9 +599,6 @@ export class App {
   private showOver(winner: number): void {
     const title = winner === this.youId ? t('won') : winner === NEUTRAL ? t('draw') : t('lost');
     const s = this.state;
-    // A timed match is decided on the board, so the board has to be shown --
-    // otherwise the ending reads as arbitrary.
-    const byClock = !!s && s.tick >= MATCH_LIMIT_TICKS;
     const rows = (s?.players ?? [])
       .map((pl) => {
         const own = s!.nodes.filter((n) => n.owner === pl.id);
@@ -629,7 +621,7 @@ export class App {
       <ul class="lobby-list">${rows.map((r, i) => r.html(i === 0 && winner !== NEUTRAL)).join('')}</ul>`;
     const p = this.panel(`
       <h1>${title}</h1>
-      <p class="sub">${byClock ? t('byTime') : t('hintSupply')}</p>
+      <p class="sub">${t('hintSupply')}</p>
       ${table}
       <div class="stack">
         <button class="primary" id="again">${t('again')}</button>
