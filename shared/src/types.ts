@@ -57,10 +57,38 @@ export interface KindSpec {
  * Rerun `node tools/balance.mjs` after changing any rule -- these numbers only
  * hold for the rules they were measured against.
  */
+/** A nest is the yardstick; the other two are written as multiples of it. */
+const NEST_BASE = 0.6;
+const NEST_PER = 0.03;
+
+/**
+ * How often each kind sends somebody out, relative to a nest holding the same
+ * garrison.
+ *
+ * A hive at twice the rate is deliberate: wasps fly at twice the speed, so at
+ * an equal rate half as many would ever be in the air at once and a hive read
+ * as the slowest thing on the board rather than the fastest. Two and two
+ * together mean that in the time two ants cross a gap, four wasps do.
+ *
+ * A den at half the rate is the same idea from the other side: one beetle is
+ * worth two workers, so half as many of them carries the same weight per
+ * second, and the difference stays in *how* it arrives.
+ */
+const RATE = { nest: 1, den: 0.5, hive: 2 };
+
 export const KINDS: Record<NodeKind, KindSpec> = {
-  nest: { unit: 'worker', growth: 0.34, cap: 150, outBase: 0.6, outPer: 0.03, links: 3, radius: 30 },
-  den: { unit: 'beetle', growth: 0.16, cap: 120, outBase: 0.24, outPer: 0.009, links: 2, radius: 27 },
-  hive: { unit: 'wasp', growth: 0.13, cap: 100, outBase: 0.2, outPer: 0.006, links: 1, radius: 25 },
+  nest: {
+    unit: 'worker', growth: 0.34, cap: 150, links: 3, radius: 30,
+    outBase: NEST_BASE * RATE.nest, outPer: NEST_PER * RATE.nest,
+  },
+  den: {
+    unit: 'beetle', growth: 0.16, cap: 120, links: 2, radius: 27,
+    outBase: NEST_BASE * RATE.den, outPer: NEST_PER * RATE.den,
+  },
+  hive: {
+    unit: 'wasp', growth: 0.13, cap: 100, links: 1, radius: 25,
+    outBase: NEST_BASE * RATE.hive, outPer: NEST_PER * RATE.hive,
+  },
 };
 
 export interface UnitSpec {
@@ -84,15 +112,14 @@ export interface UnitSpec {
 
 /**
  * Beetles crawl at exactly the pace of the ants around them -- what makes a
- * beetle worth having is weight, not speed. Wasps fly at half again as fast,
- * which together with ignoring trails is the whole of what a hive buys.
+ * beetle worth having is weight, not speed. Wasps fly at twice that.
  */
 export const WALKING_SPEED = 40;
 
 export const UNITS: Record<UnitType, UnitSpec> = {
   worker: { speed: WALKING_SPEED, power: 1, toughness: 1, flies: false },
   beetle: { speed: WALKING_SPEED, power: 2, toughness: 2, flies: false },
-  wasp: { speed: WALKING_SPEED * 1.5, power: 1, toughness: 1, flies: true },
+  wasp: { speed: WALKING_SPEED * 2, power: 1, toughness: 1, flies: true },
 };
 
 /**

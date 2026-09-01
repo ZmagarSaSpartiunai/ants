@@ -545,9 +545,9 @@ test('a node passes foreign units through instead of turning them into its own',
   );
 });
 
-test('beetles keep pace with the ants, wasps fly half again as fast', () => {
+test('beetles keep pace with the ants, wasps fly twice as fast', () => {
   assert.equal(UNITS.beetle.speed, UNITS.worker.speed, 'a beetle crawls at ant pace');
-  assert.equal(UNITS.wasp.speed, UNITS.worker.speed * 1.5, 'a wasp is half again as quick');
+  assert.equal(UNITS.wasp.speed, UNITS.worker.speed * 2, 'a wasp is twice as quick');
 
   // And that is what actually happens on the board, not just in the table.
   const s = createGame(4242, 2);
@@ -563,7 +563,7 @@ test('beetles keep pace with the ants, wasps fly half again as fast', () => {
   run(s, 5);
   const at = (unit: string) => s.packets.find((p) => p.unit === unit)!.pos;
   assert.ok(Math.abs(at('worker') - at('beetle')) < 1e-9, 'ant and beetle must stay level');
-  assert.ok(at('wasp') > at('worker') * 1.4, 'the wasp must be well ahead');
+  assert.ok(at('wasp') > at('worker') * 1.9, 'the wasp must be well ahead');
 });
 
 test('a gnawed trail leaves ground that cannot be rebuilt at once', () => {
@@ -672,4 +672,69 @@ test('a player may only bite through one trail every four seconds', () => {
   run(s, 5);
   assert.equal(chewReadyIn(s, 1), 0);
   assert.ok(applyCommand(s, { t: 'chew', p: 1, trail: second.id }), 'and after four seconds, ready again');
+});
+
+test('in the time two ants cross a gap, four wasps do', () => {
+  /** Units of `unit` that complete the same journey in the same window. */
+  const arrivals = (kind: 'nest' | 'hive', garrison: number): number => {
+    const s = createGame(4242, 2);
+    for (const n of s.nodes) {
+      n.owner = NEUTRAL;
+      n.count = 0;
+    }
+    const from = s.nodes[0];
+    const to = s.nodes[1];
+    // Same gap for both, and nothing else near enough to interfere.
+    from.x = 200; from.y = 400; from.kind = kind;
+    to.x = 800; to.y = 400; to.kind = 'nest';
+    for (const n of s.nodes.slice(2)) {
+      n.x = 60;
+      n.y = 750;
+    }
+    from.owner = 0;
+    to.owner = 0;
+    s.players[0].home = from.id;
+    // The opponent needs somewhere to exist: with nobody left alive the match
+    // ends on the first tick and the simulation stops running entirely.
+    const theirs = s.nodes[2];
+    theirs.owner = 1;
+    theirs.count = 50;
+    s.players[1].home = theirs.id;
+    assert.ok(applyCommand(s, { t: 'link', p: 0, from: from.id, to: to.id }));
+
+    let landed = 0;
+    // Hold the garrison so output is constant, and count what reaches the far
+    // end over a window that starts once the route is full.
+    const hold = (seconds: number, count: boolean): void => {
+      for (let i = 0; i < seconds * TICK_HZ; i++) {
+        from.count = garrison;
+        for (const e of step(s)) if (count && e.t === 'delta' && e.node === to.id) landed++;
+      }
+    };
+    hold(30, false);
+    hold(20, true);
+
+    return landed;
+  };
+
+  const ants = arrivals('nest', 60);
+  const wasps = arrivals('hive', 60);
+  assert.ok(ants > 10, `the ants must actually be arriving, got ${ants}`);
+  const ratio = wasps / ants;
+  assert.ok(
+    ratio > 1.7 && ratio < 2.3,
+    `twice as many wasps should land as ants: ${wasps} vs ${ants} (${ratio.toFixed(2)}x)`,
+  );
+});
+
+test('the strength table is exactly as designed', () => {
+  // Two workers kill one beetle; a beetle hits a garrison for two, the other
+  // two for one each; a wasp flies at twice the pace of anything on foot.
+  assert.equal(UNITS.beetle.toughness, UNITS.worker.toughness * 2);
+  assert.equal(UNITS.wasp.toughness, UNITS.worker.toughness);
+  assert.equal(UNITS.beetle.power, 2);
+  assert.equal(UNITS.worker.power, 1);
+  assert.equal(UNITS.wasp.power, 1);
+  assert.equal(UNITS.beetle.speed, UNITS.worker.speed);
+  assert.equal(UNITS.wasp.speed, UNITS.worker.speed * 2);
 });
