@@ -128,3 +128,26 @@ export function recordMatch(won: boolean, seconds: number): void {
 export function bump(field: keyof Stats, by = 1): void {
   progress().stats[field] += by;
 }
+
+const NAME_KEY = 'ants.name';
+
+/**
+ * The name other people see in a room. Remembered so it is typed once, not
+ * every time: rooms are shared by reading a code aloud, and stopping to retype
+ * your own name each round is exactly the kind of friction that ends a session.
+ */
+export function playerName(): string {
+  try {
+    return localStorage.getItem(NAME_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function setPlayerName(name: string): void {
+  try {
+    localStorage.setItem(NAME_KEY, name.trim().slice(0, 20));
+  } catch {
+    // It simply will not be remembered next time.
+  }
+}

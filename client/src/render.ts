@@ -1,6 +1,7 @@
 import {
   blockedBy,
   canLink,
+  crossesWater,
   FIELD_H,
   FIELD_W,
   GameNode,
@@ -9,6 +10,7 @@ import {
   NEUTRAL,
   outgoing,
   Packet,
+  River,
   SPEED_FROM_STRENGTH,
   Trail,
   UNITS,
@@ -154,6 +156,7 @@ export class Renderer {
 
     if (!this.meadow) this.meadow = buildMeadow();
     ctx.drawImage(this.meadow, 0, 0);
+    for (const river of s.rivers) this.drawRiver(river);
 
     if (drag) this.drawBlocker(s, you, drag);
     this.drawScars(s);
@@ -166,6 +169,65 @@ export class Renderer {
     for (const t of s.trails) this.drawChew(s, t);
     this.drawEffects(dt);
 
+    ctx.restore();
+  }
+
+  /**
+   * Water, with its banks and its fords. The fords have to be unmistakable:
+   * they are the only way across on foot, so they are where the whole map is
+   * decided, and a player who cannot see them reads the river as a wall.
+   */
+  private drawRiver(river: River): void {
+    const ctx = this.ctx;
+    const line = (): void => {
+      ctx.beginPath();
+      ctx.moveTo(river.points[0].x, river.points[0].y);
+      for (const p of river.points.slice(1)) ctx.lineTo(p.x, p.y);
+    };
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    // Wet earth at the edges, then the water itself, then a moving glint.
+    ctx.strokeStyle = 'rgba(48, 40, 24, 0.75)';
+    ctx.lineWidth = river.width * 2 + 10;
+    line();
+    ctx.stroke();
+    ctx.strokeStyle = '#24506b';
+    ctx.lineWidth = river.width * 2;
+    line();
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(86, 158, 196, 0.55)';
+    ctx.lineWidth = river.width * 1.15;
+    line();
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(190, 230, 250, 0.28)';
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([16, 26]);
+    ctx.lineDashOffset = -this.time * 26;
+    line();
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    for (const f of river.fords) {
+      // A shallow: pale sand and stepping stones, so it reads as walkable.
+      const g = ctx.createRadialGradient(f.x, f.y, f.radius * 0.2, f.x, f.y, f.radius);
+      g.addColorStop(0, 'rgba(196, 176, 122, 0.92)');
+      g.addColorStop(0.65, 'rgba(150, 150, 110, 0.6)');
+      g.addColorStop(1, 'rgba(120, 140, 120, 0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(f.x, f.y, f.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(120, 112, 96, 0.85)';
+      for (let i = 0; i < 7; i++) {
+        const a = i * 2.3999;
+        const d = f.radius * (0.2 + ((i * 5) % 9) / 16);
+        ctx.beginPath();
+        ctx.ellipse(f.x + Math.cos(a) * d, f.y + Math.sin(a) * d, 4.5, 3, a, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
     ctx.restore();
   }
 
@@ -186,10 +248,38 @@ export class Renderer {
       }
     }
     if (!over || over.id === from.id || canLink(s, you, from.id, over.id)) return;
-    const blocker = blockedBy(s, from.id, over.id);
-    if (!blocker) return;
 
     const ctx = this.ctx;
+    // Water first: if the line would have to wade, that is the reason, and it
+    // is marked where the crossing would be.
+    const wet = crossesWater(s, from, over);
+    if (wet) {
+      ctx.save();
+      ctx.setLineDash([5, 6]);
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = 'rgba(255,120,90,0.65)';
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(wet.x, wet.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.arc(wet.x, wet.y, 15, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(wet.x - 9, wet.y - 9);
+      ctx.lineTo(wet.x + 9, wet.y + 9);
+      ctx.moveTo(wet.x + 9, wet.y - 9);
+      ctx.lineTo(wet.x - 9, wet.y + 9);
+      ctx.stroke();
+      ctx.restore();
+
+      return;
+    }
+
+    const blocker = blockedBy(s, from.id, over.id);
+    if (!blocker) return;
     const rr = KINDS[blocker.kind].radius + 8;
     ctx.save();
     ctx.setLineDash([5, 6]);

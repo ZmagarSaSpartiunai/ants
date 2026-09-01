@@ -25,7 +25,17 @@ import { Net } from './net.js';
 import { detectLang, LANGS, setLang, t } from './i18n.js';
 import { loadSound, setSound, sfx, soundOn, unlock } from './audio.js';
 import { playerColor } from './theme.js';
-import { bump, isUnlocked, progress, recordLevel, recordMatch, resetProgress, unlockedUpTo } from './progress.js';
+import {
+  bump,
+  isUnlocked,
+  playerName,
+  progress,
+  recordLevel,
+  recordMatch,
+  resetProgress,
+  setPlayerName,
+  unlockedUpTo,
+} from './progress.js';
 
 type Mode = 'solo' | 'online';
 type Screen = 'game' | 'menu' | 'onlineMenu' | 'lobby' | 'over' | 'levels' | 'stats';
@@ -59,6 +69,7 @@ export class App {
       packets: this.state?.packets.length,
       supplied: this.state?.supplied,
       severed: this.state?.severed,
+      rivers: this.state?.rivers,
       over: this.state?.over,
       tick: this.state?.tick,
       toWorld: (x: number, y: number) => this.renderer.toWorld(x, y),
@@ -522,12 +533,15 @@ export class App {
     );
     const pips = s.players
       .map((p) => {
+        // In a room everybody has a name, including you: "You" against three
+        // other people all called "You" tells nobody anything.
+        const seat = this.roomPlayers.find((r) => r.slot === p.id);
         const name =
-          p.id === this.youId
-            ? t('you')
-            : this.mode === 'solo'
-              ? t('bot')
-              : (this.roomPlayers.find((r) => r.slot === p.id)?.name ?? `#${p.id + 1}`);
+          this.mode === 'online'
+            ? (seat?.bot ? t('bot') : seat?.name) ?? `#${p.id + 1}`
+            : p.id === this.youId
+              ? t('you')
+              : t('bot');
 
         return `<div class="pip${p.alive ? '' : ' dead'}">
           <span class="dot" style="background:${playerColor(p.id)}"></span>
@@ -755,6 +769,11 @@ export class App {
     const p = this.panel(`
       <h2>${t('online')}</h2>
       <p class="sub">${t('hintChew')}</p>
+      <div class="row"><label>${t('yourName')}</label>
+        <input type="text" id="nick" maxlength="16" class="nick"
+               placeholder="${t('yourName')}" value="${escapeHtml(playerName())}"
+               autocomplete="nickname" />
+      </div>
       <div class="row"><label>${t('players')}</label><div class="seg" id="slots">
         ${[2, 3, 4].map((n) => `<button data-n="${n}" aria-pressed="${n === this.wantSlots}">${n}</button>`).join('')}
       </div></div>
@@ -777,14 +796,14 @@ export class App {
       this.netError = t('connecting');
       // Created empty on purpose: bots are added afterwards, from the lobby,
       // so the seats stay open for the people the room was made for.
-      this.ensureNet().send({ t: 'create', name: t('you'), slots: this.wantSlots });
+      this.ensureNet().send({ t: 'create', name: this.nick(p), slots: this.wantSlots });
     });
     const code = p.querySelector('#code') as HTMLInputElement;
     p.querySelector('#join')!.addEventListener('click', () => {
       const value = code.value.trim().toUpperCase();
       if (value.length < 4) return;
       this.netError = t('connecting');
-      this.ensureNet().send({ t: 'join', code: value, name: t('you') });
+      this.ensureNet().send({ t: 'join', code: value, name: this.nick(p) });
     });
     p.querySelector('#back')!.addEventListener('click', () => {
       this.screen = 'menu';
@@ -792,17 +811,27 @@ export class App {
     });
   }
 
+  /** Whatever is typed in the name box, remembered for next time. */
+  private nick(panel: HTMLElement): string {
+    const field = panel.querySelector('#nick') as HTMLInputElement | null;
+    const name = (field?.value ?? '').trim();
+    if (name) setPlayerName(name);
+
+    return name || t('you');
+  }
+
   private showLobby(): void {
     const list = this.roomPlayers
       .map((r) => {
         const label = r.connected ? escapeHtml(r.name) : r.bot ? t('bot') : t('openSeat');
+        const isYou = r.slot === this.youId;
         // Only the host may seat a bot, and only on a seat nobody is sitting in.
         const action =
           this.isHost && !r.connected
             ? `<button class="seat" data-slot="${r.slot}" data-on="${r.bot ? '0' : '1'}">${
                 r.bot ? '\u00d7' : '+ ' + t('bot')
               }</button>`
-            : r.slot === this.youId
+            : isYou
               ? `<b>${t('you')}</b>`
               : '';
 

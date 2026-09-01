@@ -76,6 +76,8 @@ const EN: Dict = {
   title: 'Anthill',
   tagline: 'Tower war where the trail itself can be cut',
   allGames: 'All games',
+  hintWater: 'Ants cannot wade — cross at a ford, or fly',
+  yourName: 'Your name',
 };
 
 const UK: Dict = {
@@ -152,6 +154,8 @@ const UK: Dict = {
   title: 'Мурашник',
   tagline: 'Війна веж, у якій можна перерізати саму стежку',
   allGames: 'Усі ігри',
+  hintWater: 'Мурахи не перейдуть воду — веди через брід або літаком',
+  yourName: 'Твоє ім’я',
 };
 
 const PL: Dict = {
@@ -207,6 +211,8 @@ const PL: Dict = {
   title: 'Mrowisko',
   tagline: 'Wojna wież, w której można przeciąć sam szlak',
   allGames: 'Wszystkie gry',
+  hintWater: 'Mrówki nie przejdą wody — przez bród albo lotem',
+  yourName: 'Twoje imię',
 };
 
 const DE: Dict = {
@@ -262,6 +268,8 @@ const DE: Dict = {
   title: 'Ameisenhaufen',
   tagline: 'Tower War, in dem der Pfad selbst zerbissen wird',
   allGames: 'Alle Spiele',
+  hintWater: 'Ameisen kommen nicht durchs Wasser — nimm eine Furt oder flieg',
+  yourName: 'Dein Name',
 };
 
 const ES: Dict = {
@@ -317,6 +325,8 @@ const ES: Dict = {
   title: 'Hormiguero',
   tagline: 'Tower war donde el sendero mismo se puede cortar',
   allGames: 'Todos los juegos',
+  hintWater: 'Las hormigas no vadean — cruza por un vado o vuela',
+  yourName: 'Tu nombre',
 };
 
 const PT: Dict = {
@@ -372,6 +382,8 @@ const PT: Dict = {
   title: 'Formigueiro',
   tagline: 'Tower war onde o próprio trilho pode ser cortado',
   allGames: 'Todos os jogos',
+  hintWater: 'As formigas não atravessam a água — usa um vau ou voa',
+  yourName: 'O teu nome',
 };
 
 export const LANGS: Record<string, { name: string; dict: Dict }> = {

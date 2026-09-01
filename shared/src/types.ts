@@ -217,6 +217,27 @@ export const SEVERED_TICKS = TICK_HZ * 5;
  */
 export const CHEW_COOLDOWN = TICK_HZ * 4;
 
+export interface Point {
+  x: number;
+  y: number;
+}
+
+/**
+ * Water. Ants and beetles cannot cross it, wasps fly over.
+ *
+ * It is not a wall: every river has fords, and those become the places worth
+ * fighting for. A river straight across a map with no way over would only
+ * split it into two games played side by side.
+ */
+export interface River {
+  /** Centre line, as a polyline. */
+  points: Point[];
+  /** How wide the water is drawn; crossing is judged on the centre line. */
+  width: number;
+  /** Shallow places where a trail may cross after all. */
+  fords: { x: number; y: number; radius: number }[];
+}
+
 export interface GameNode {
   id: number;
   x: number;
@@ -304,6 +325,8 @@ export interface GameState {
   supplied: boolean[];
   /** Connections still healing from being gnawed through. */
   severed: Severed[];
+  /** Water on this map. Fixed for the whole match. */
+  rivers: River[];
   nextTrailId: number;
   over: boolean;
   winner: number;

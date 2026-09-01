@@ -5,6 +5,7 @@ import {
   GameState,
   KINDS,
   chewReadyIn,
+  crossesWater,
   linksFree,
   NEUTRAL,
   severedFor,
@@ -146,6 +147,8 @@ export class Input {
       this.host.hint('hintNodeFull');
     } else if (severedFor(s, this.host.you(), drag.fromNode, target.id) > 0) {
       this.host.hint('hintSevered');
+    } else if (crossesWater(s, s.nodes[drag.fromNode], target)) {
+      this.host.hint('hintWater');
     } else if (blockedBy(s, drag.fromNode, target.id)) {
       this.host.hint('hintBlocked');
     } else {

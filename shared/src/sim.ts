@@ -13,6 +13,7 @@ import {
   KINDS,
   NEUTRAL,
   Packet,
+  Point,
   UNIT_SIZE,
   UnitType,
   noUnits,
@@ -39,8 +40,39 @@ export type SimEvent =
   | { t: 'eliminated'; p: number }
   | { t: 'over'; winner: number };
 
+/** A player who can reach fewer than this from home has no opening to play. */
+const MIN_OPENINGS = 2;
+
+/**
+ * Four layouts crossed with rivers and fords can easily produce a board where
+ * somebody is walled in from the first second, and that is the one map fault a
+ * player cannot play around. So the generator checks its own work -- with the
+ * real rules, not a copy of them -- and tries again with a nudged seed until
+ * every player has somewhere to go.
+ */
 export function createGame(seed: number, playerCount: number): GameState {
-  const { nodes, homes } = generateMap(seed, playerCount);
+  let best: GameState | null = null;
+  let bestScore = -1;
+  for (let attempt = 0; attempt < 12; attempt++) {
+    // Later attempts drop the water, so a map is always reachable in the end.
+    const candidate = buildGame((seed + attempt * 40503) >>> 0, playerCount, attempt >= 8);
+    const worst = Math.min(
+      ...candidate.players.map(
+        (p) => candidate.nodes.filter((n) => canLink(candidate, p.id, p.home, n.id)).length,
+      ),
+    );
+    if (worst >= MIN_OPENINGS) return candidate;
+    if (worst > bestScore) {
+      bestScore = worst;
+      best = candidate;
+    }
+  }
+
+  return best!;
+}
+
+function buildGame(seed: number, playerCount: number, dry: boolean): GameState {
+  const { nodes, homes, rivers } = generateMap(seed, playerCount);
   const players: PlayerState[] = [];
   for (let i = 0; i < playerCount; i++) {
     players.push({ id: i, alive: true, home: homes[i], chewing: -1, chewReadyAt: 0 });
@@ -55,6 +87,7 @@ export function createGame(seed: number, playerCount: number): GameState {
     players,
     supplied: nodes.map(() => false),
     severed: [],
+    rivers: dry ? [] : rivers,
     nextTrailId: 1,
     over: false,
     winner: NEUTRAL,
@@ -71,6 +104,8 @@ export function cloneState(s: GameState): GameState {
     players: s.players.map((p) => ({ ...p })),
     supplied: s.supplied.slice(),
     severed: s.severed.map((x) => ({ ...x })),
+    // Water never changes during a match, so the same array is shared.
+    rivers: s.rivers,
     nextTrailId: s.nextTrailId,
     over: s.over,
     winner: s.winner,
@@ -126,6 +161,40 @@ function pointToSegment(px: number, py: number, ax: number, ay: number, bx: numb
  * Distance is deliberately not a rule -- any two nodes with a clear line may be
  * joined however far apart they are.
  */
+/** Do two segments cross, and if so where? */
+function segmentCross(a: Point, b: Point, c: Point, d: Point): Point | undefined {
+  const r1 = b.x - a.x;
+  const r2 = b.y - a.y;
+  const s1 = d.x - c.x;
+  const s2 = d.y - c.y;
+  const denom = r1 * s2 - r2 * s1;
+  if (denom === 0) return undefined;
+  const t = ((c.x - a.x) * s2 - (c.y - a.y) * s1) / denom;
+  const u = ((c.x - a.x) * r2 - (c.y - a.y) * r1) / denom;
+  if (t < 0 || t > 1 || u < 0 || u > 1) return undefined;
+
+  return { x: a.x + r1 * t, y: a.y + r2 * t };
+}
+
+/**
+ * Where a trail would have to wade. Ants and beetles walk, so water stops them
+ * -- except at a ford, which is the whole point of having fords.
+ */
+export function crossesWater(s: GameState, from: GameNode, to: GameNode): Point | undefined {
+  for (const river of s.rivers) {
+    for (let i = 0; i + 1 < river.points.length; i++) {
+      const hit = segmentCross(from, to, river.points[i], river.points[i + 1]);
+      if (!hit) continue;
+      const forded = river.fords.some(
+        (f) => (hit.x - f.x) * (hit.x - f.x) + (hit.y - f.y) * (hit.y - f.y) <= f.radius * f.radius,
+      );
+      if (!forded) return hit;
+    }
+  }
+
+  return undefined;
+}
+
 export function blockedBy(s: GameState, fromId: number, toId: number): GameNode | undefined {
   const a = s.nodes[fromId];
   const b = s.nodes[toId];
@@ -169,8 +238,12 @@ export function canLink(s: GameState, p: number, fromId: number, toId: number): 
   // How many trails a node can feed is the limit that runs out. Distance is
   // not a limit at all.
   if (outgoing(s, fromId) >= KINDS[from.kind].links) return false;
-  // Wasps fly over whatever is on the ground; ants have to go through it.
-  if (from.kind !== 'hive' && blockedBy(s, fromId, toId)) return false;
+  // Wasps fly over whatever is on the ground; ants have to go through it, and
+  // cannot get across water at all except at a ford.
+  if (from.kind !== 'hive') {
+    if (blockedBy(s, fromId, toId)) return false;
+    if (crossesWater(s, from, to)) return false;
+  }
 
   return true;
 }

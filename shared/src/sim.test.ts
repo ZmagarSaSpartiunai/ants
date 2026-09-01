@@ -8,6 +8,7 @@ import {
   canLink,
   chewReadyIn,
   createGame,
+  crossesWater,
   distance,
   linksFree,
   outputRate,
@@ -283,10 +284,13 @@ test('a bot duel makes progress rather than sitting still', () => {
 
 test('a node feeds only as many trails as its kind allows', () => {
   const s = createGame(8821, 2);
+  s.rivers = [];
   const home = s.nodes[s.players[0].home];
   home.count = 40;
   const budget = KINDS[home.kind].links;
-  const targets = s.nodes.filter((n) => n.id !== home.id).slice(0, budget + 2);
+  // Reachable ones only: the budget is what this test is about, not geometry.
+  const targets = s.nodes.filter((n) => canLink(s, 0, home.id, n.id)).slice(0, budget + 2);
+  assert.ok(targets.length >= budget + 1, 'the map must offer enough reachable targets');
 
   for (let i = 0; i < budget; i++) {
     assert.equal(linksFree(s, home.id), budget - i);
@@ -309,6 +313,7 @@ test('a node feeds only as many trails as its kind allows', () => {
 
 test('distance is not a rule, but a node in the way is', () => {
   const s = createGame(8821, 2);
+  s.rivers = [];
   const home = s.nodes[s.players[0].home];
   const dist = (n: GameNode) => distance(home, n);
   const clearAndFar = s.nodes
@@ -378,6 +383,9 @@ test('damage adds up: three streams hurt three times as much as one', () => {
     target.count = KINDS.nest.cap;
     s.players[1].home = target.id;
 
+    // Hand-placed nodes and hand-drawn water do not mix: this test is about
+    // arithmetic, so the map is dried out first.
+    s.rivers = [];
     const attackers = s.nodes.filter((n) => n.id !== target.id && n.kind === 'nest').slice(0, sources);
     assert.equal(attackers.length, sources, 'the map must have enough nests for this test');
     s.players[0].home = attackers[0].id;
@@ -471,35 +479,52 @@ test('ants leave one at a time', () => {
 });
 
 test('output rises with the garrison, and splits across trails', () => {
-  const s = createGame(4242, 2);
-  const n = s.nodes[s.players[0].home];
-  step(s);
+  /** Ants set off from `from` over ten seconds, with `targets` trails open. */
+  const emitted = (fill: number, targets: number): number => {
+    const s = createGame(4242, 2);
+    s.rivers = [];
+    const from = s.nodes[0];
+    const a = s.nodes[1];
+    const b = s.nodes[2];
+    // Placed by hand and equidistant: a trail's length decides how many ants
+    // are *on* it, which would otherwise drown out what is being measured.
+    from.x = 600; from.y = 400; from.kind = 'nest';
+    a.x = 600; a.y = 120;
+    b.x = 600; b.y = 680;
+    for (const n of s.nodes.slice(3)) {
+      n.x = 40;
+      n.y = 760;
+    }
+    from.owner = 0;
+    s.players[0].home = from.id;
+    const others = s.nodes.slice(3).find((n) => n.id !== from.id)!;
+    others.owner = 1;
+    s.players[1].home = others.id;
 
-  n.count = 10;
-  const small = outputRate(s, n);
-  n.count = KINDS.nest.cap;
-  const large = outputRate(s, n);
-  assert.ok(large > small * 2, `a full nest should out-produce a thin one: ${large} vs ${small}`);
+    assert.ok(applyCommand(s, { t: 'link', p: 0, from: from.id, to: a.id }));
+    if (targets > 1) assert.ok(applyCommand(s, { t: 'link', p: 0, from: from.id, to: b.id }));
 
-  // Opening more trails spreads that output rather than multiplying it.
-  const targets = s.nodes.filter((x) => x.id !== n.id && canLink(s, 0, n.id, x.id)).slice(0, 2);
-  assert.equal(targets.length, 2, 'the test needs two reachable targets');
-  assert.ok(applyCommand(s, { t: 'link', p: 0, from: n.id, to: targets[0].id }));
-  run(s, 8);
-  const oneTrail = s.packets.filter((p) => p.from === n.id).length;
+    let count = 0;
+    for (let i = 0; i < 10 * TICK_HZ; i++) {
+      from.count = KINDS.nest.cap * fill;
+      const before = s.packets.length;
+      step(s);
+      // Arrivals leave the list too, so count growth plus whatever left it.
+      count += Math.max(0, s.packets.length - before);
+    }
 
-  const s2 = createGame(4242, 2);
-  const m = s2.nodes[s2.players[0].home];
-  step(s2);
-  m.count = KINDS.nest.cap;
-  const two = s2.nodes.filter((x) => x.id !== m.id && canLink(s2, 0, m.id, x.id)).slice(0, 2);
-  for (const t of two) assert.ok(applyCommand(s2, { t: 'link', p: 0, from: m.id, to: t.id }));
-  run(s2, 8);
-  const twoTrails = s2.packets.filter((p) => p.from === m.id).length;
+    return count;
+  };
 
+  const thin = emitted(0.05, 1);
+  const full = emitted(1, 1);
+  assert.ok(full > thin * 2, `a full nest should out-produce a thin one: ${full} vs ${thin}`);
+
+  // Two trails share that output rather than doubling it.
+  const twoTrails = emitted(1, 2);
   assert.ok(
-    twoTrails < oneTrail * 1.6,
-    `two trails must share one node's output, not double it: ${oneTrail} vs ${twoTrails}`,
+    twoTrails < full * 1.35,
+    `two trails must share one node's output, not double it: ${full} vs ${twoTrails}`,
   );
 });
 
@@ -687,6 +712,7 @@ test('in the time two ants cross a gap, four wasps do', () => {
       n.owner = NEUTRAL;
       n.count = 0;
     }
+    s.rivers = [];
     const from = s.nodes[0];
     const to = s.nodes[1];
     // Same gap for both, and nothing else near enough to interfere.
@@ -815,4 +841,127 @@ test('a strong node speeds its walkers up, and leaves wasps alone', () => {
     Math.abs(reach('hive', 1) - reach('hive', 0)) < 1e-9,
     'a wasp flies at one speed and no other',
   );
+});
+
+test('water stops ants and beetles, and lets wasps over', () => {
+  // Find a map that actually has a river; roughly half of them do.
+  let s = createGame(1, 2);
+  for (let seed = 1; seed < 200 && !s.rivers.length; seed++) s = createGame(seed, 2);
+  assert.ok(s.rivers.length, 'the generator must produce rivers at all');
+  const river = s.rivers[0];
+  assert.ok(river.fords.length > 0, 'a river without a ford is a wall, not a river');
+
+  // A pair of nodes on opposite banks, away from any ford.
+  const a = s.nodes[0];
+  const b = s.nodes[1];
+  const far = river.points[Math.floor(river.points.length / 2)];
+  const wet = river.fords.every(
+    (f) => Math.hypot(far.x - f.x, far.y - f.y) > f.radius + 60,
+  );
+  assert.ok(wet, 'the test needs a stretch of water away from the fords');
+  const dx = river.points[1].x - river.points[0].x;
+  const dy = river.points[1].y - river.points[0].y;
+  const len = Math.hypot(dx, dy) || 1;
+  // Straddle the river along its normal, so the line between them must cross.
+  a.x = Math.round(far.x - (-dy / len) * 120);
+  a.y = Math.round(far.y - (dx / len) * 120);
+  b.x = Math.round(far.x + (-dy / len) * 120);
+  b.y = Math.round(far.y + (dx / len) * 120);
+  for (const n of s.nodes.slice(2)) {
+    n.x = 20;
+    n.y = 20;
+  }
+  a.owner = 0;
+  a.kind = 'nest';
+  s.players[0].home = a.id;
+
+  assert.ok(crossesWater(s, a, b), 'the line must actually cross the water');
+  assert.equal(canLink(s, 0, a.id, b.id), false, 'ants cannot wade');
+
+  // The same line from a hive is fine.
+  a.kind = 'hive';
+  assert.ok(canLink(s, 0, a.id, b.id), 'wasps fly over water');
+});
+
+test('a ford is a way across', () => {
+  let s = createGame(1, 2);
+  for (let seed = 1; seed < 200 && !s.rivers.length; seed++) s = createGame(seed, 2);
+  const ford = s.rivers[0].fords[0];
+  const dir = s.rivers[0].points;
+  const dx = dir[1].x - dir[0].x;
+  const dy = dir[1].y - dir[0].y;
+  const len = Math.hypot(dx, dy) || 1;
+
+  const a = s.nodes[0];
+  const b = s.nodes[1];
+  a.x = Math.round(ford.x - (-dy / len) * 90);
+  a.y = Math.round(ford.y - (dx / len) * 90);
+  b.x = Math.round(ford.x + (-dy / len) * 90);
+  b.y = Math.round(ford.y + (dx / len) * 90);
+  for (const n of s.nodes.slice(2)) {
+    n.x = 20;
+    n.y = 20;
+  }
+  a.owner = 0;
+  a.kind = 'nest';
+  s.players[0].home = a.id;
+
+  assert.equal(crossesWater(s, a, b), undefined, 'a crossing at the ford is allowed');
+  assert.ok(canLink(s, 0, a.id, b.id), 'and so the trail may be dug');
+});
+
+test('no node ever stands in the water', () => {
+  for (let seed = 1; seed < 60; seed++) {
+    for (const players of [2, 3, 4]) {
+      const s = createGame(seed, players);
+      for (const river of s.rivers) {
+        for (const n of s.nodes) {
+          for (let i = 0; i + 1 < river.points.length; i++) {
+            const p = river.points[i];
+            const q = river.points[i + 1];
+            const dx = q.x - p.x;
+            const dy = q.y - p.y;
+            const len2 = dx * dx + dy * dy || 1;
+            let t = ((n.x - p.x) * dx + (n.y - p.y) * dy) / len2;
+            t = Math.max(0, Math.min(1, t));
+            const d = Math.hypot(n.x - (p.x + dx * t), n.y - (p.y + dy * t));
+            assert.ok(
+              d > river.width,
+              `seed ${seed}/${players}: node ${n.id} is standing in the river (${d.toFixed(0)})`,
+            );
+          }
+        }
+      }
+    }
+  }
+});
+
+test('every generated map leaves every player somewhere to go', () => {
+  // Four layouts crossed with rivers and fords can very easily produce a board
+  // where somebody is walled in from the first second. That is the one map
+  // fault a player cannot play around, so it is swept for.
+  let tight = { seed: 0, players: 0, targets: 99 };
+  for (let seed = 1; seed <= 120; seed++) {
+    for (const players of [2, 3, 4]) {
+      const s = createGame(seed, players);
+      assert.ok(s.nodes.length >= 9, `seed ${seed}/${players}: only ${s.nodes.length} nodes`);
+      assert.equal(
+        new Set(s.players.map((p) => p.home)).size,
+        players,
+        `seed ${seed}/${players}: two players share a home`,
+      );
+
+      for (const p of s.players) {
+        const home = s.nodes[p.home];
+        assert.equal(home.owner, p.id, `seed ${seed}/${players}: home ${p.home} is not owned`);
+        const reachable = s.nodes.filter((n) => canLink(s, p.id, home.id, n.id)).length;
+        assert.ok(
+          reachable >= 2,
+          `seed ${seed}/${players}: player ${p.id} can only reach ${reachable} nodes from home`,
+        );
+        if (reachable < tight.targets) tight = { seed, players, targets: reachable };
+      }
+    }
+  }
+  console.log(`  найтісніша карта: зерно ${tight.seed}, ${tight.players} гравці, ${tight.targets} цілі з домівки`);
 });
