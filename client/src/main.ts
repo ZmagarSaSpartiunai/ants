@@ -83,7 +83,6 @@ export class App {
   private soloPlayers = 2;
   private soloLevel: BotLevel = 'normal';
   private wantSlots = 2;
-  private wantBots = true;
 
   constructor(root: HTMLElement) {
     root.append(this.canvas, this.hud, this.legend, this.toast, this.overlay);
@@ -514,9 +513,6 @@ export class App {
       <div class="row"><label>${t('players')}</label><div class="seg" id="slots">
         ${[2, 3, 4].map((n) => `<button data-n="${n}" aria-pressed="${n === this.wantSlots}">${n}</button>`).join('')}
       </div></div>
-      <div class="row"><label>${t('bots')}</label>
-        <button id="botToggle" aria-pressed="${this.wantBots}">${this.wantBots ? '✓' : '—'}</button>
-      </div>
       <div class="stack">
         <button class="primary" id="create">${t('create')}</button>
         <input type="text" id="code" maxlength="6" placeholder="${t('code')}" autocomplete="off" />
@@ -532,18 +528,11 @@ export class App {
       this.wantSlots = +n;
       this.showOnlineMenu();
     });
-    p.querySelector('#botToggle')!.addEventListener('click', () => {
-      this.wantBots = !this.wantBots;
-      this.showOnlineMenu();
-    });
     p.querySelector('#create')!.addEventListener('click', () => {
       this.netError = t('connecting');
-      this.ensureNet().send({
-        t: 'create',
-        name: t('you'),
-        slots: this.wantSlots,
-        bots: this.wantBots ? this.wantSlots - 1 : 0,
-      });
+      // Created empty on purpose: bots are added afterwards, from the lobby,
+      // so the seats stay open for the people the room was made for.
+      this.ensureNet().send({ t: 'create', name: t('you'), slots: this.wantSlots });
     });
     const code = p.querySelector('#code') as HTMLInputElement;
     p.querySelector('#join')!.addEventListener('click', () => {
@@ -560,18 +549,30 @@ export class App {
 
   private showLobby(): void {
     const list = this.roomPlayers
-      .map(
-        (r) => `<li><span class="dot" style="background:${playerColor(r.slot)}"></span>
-          <span>${escapeHtml(r.bot ? t('bot') : r.name)}</span>
-          ${r.slot === this.youId ? `<b style="margin-left:auto">${t('you')}</b>` : ''}</li>`,
-      )
+      .map((r) => {
+        const label = r.connected ? escapeHtml(r.name) : r.bot ? t('bot') : t('openSeat');
+        // Only the host may seat a bot, and only on a seat nobody is sitting in.
+        const action =
+          this.isHost && !r.connected
+            ? `<button class="seat" data-slot="${r.slot}" data-on="${r.bot ? '0' : '1'}">${
+                r.bot ? '\u00d7' : '+ ' + t('bot')
+              }</button>`
+            : r.slot === this.youId
+              ? `<b>${t('you')}</b>`
+              : '';
+
+        return `<li><span class="dot" style="background:${playerColor(r.slot)}"></span>
+          <span${r.connected || r.bot ? '' : ' style="opacity:.55"'}>${label}</span>
+          <span style="margin-left:auto">${action}</span></li>`;
+      })
       .join('');
-    const filled = this.roomPlayers.filter((r) => r.connected || r.bot).length;
+    const open = this.roomPlayers.filter((r) => !r.connected && !r.bot).length;
     const p = this.panel(`
       <h2>${t('code')}</h2>
       <div class="code" id="code">${this.room}</div>
+      <p class="sub">${t('shareCode')}</p>
       <ul class="lobby-list">${list}</ul>
-      <p class="sub">${filled}/${this.roomSlots} — ${t('waiting')}</p>
+      <p class="sub">${open > 0 ? t('waiting') : t('allSeated')}</p>
       <div class="stack">
         ${this.isHost ? `<button class="primary" id="start">${t('start')}</button>` : ''}
         <p class="err">${escapeHtml(this.netError)}</p>
@@ -579,6 +580,12 @@ export class App {
       </div>
     `);
 
+    for (const btn of p.querySelectorAll('.seat')) {
+      btn.addEventListener('click', () => {
+        const el = btn as HTMLElement;
+        this.net?.send({ t: 'bot', slot: Number(el.dataset.slot), on: el.dataset.on === '1' });
+      });
+    }
     p.querySelector('#code')!.addEventListener('click', () => {
       navigator.clipboard?.writeText(this.room).then(
         () => this.say(t('copied')),

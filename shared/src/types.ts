@@ -211,7 +211,9 @@ export type Command =
 /** Server -> client and client -> server wire messages. */
 export type ClientMsg =
   | { t: 'hello'; name: string }
-  | { t: 'create'; name: string; slots: number; bots: number }
+  | { t: 'create'; name: string; slots: number }
+  /** Host only, in the lobby: put a bot on an empty seat, or clear it again. */
+  | { t: 'bot'; slot: number; on: boolean }
   | { t: 'join'; code: string; name: string }
   | { t: 'ready' }
   | { t: 'cmd'; cmd: Command }
@@ -232,3 +234,7 @@ export interface RoomPlayer {
   bot: boolean;
   connected: boolean;
 }
+
+/** Seats a room may have. Empty ones stay open for people until the host starts. */
+export const MIN_SLOTS = 2;
+export const MAX_SLOTS = 4;

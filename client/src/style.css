@@ -194,3 +194,5 @@ select {
 .err { color: #ff9c7d; font-size: 14px; min-height: 18px; margin: 4px 0 0; }
 
 .pip.urgent { color: #ffb37a; border-color: rgba(255, 140, 80, 0.45); }
+
+.lobby-list button.seat { padding: 4px 10px; font-size: 13px; border-radius: 8px; }

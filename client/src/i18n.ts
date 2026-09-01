@@ -9,7 +9,6 @@ const EN: Dict = {
   join: 'Join with a code',
   code: 'Room code',
   players: 'Players',
-  bots: 'Fill with bots',
   difficulty: 'Difficulty',
   easy: 'Easy',
   normal: 'Normal',
@@ -48,6 +47,9 @@ const EN: Dict = {
   byTime: 'Time is up — most of the board wins',
   hintNodeFull: 'This node already runs all its trails',
   hintBlocked: 'A node is in the way — chain the trail through it',
+  openSeat: 'Open seat',
+  allSeated: 'Everyone is seated — start when ready',
+  shareCode: 'Read the code out to a friend, or tap to copy',
 };
 
 const UK: Dict = {
@@ -57,7 +59,6 @@ const UK: Dict = {
   join: 'Увійти за кодом',
   code: 'Код кімнати',
   players: 'Гравців',
-  bots: 'Добрати ботами',
   difficulty: 'Складність',
   easy: 'Легко',
   normal: 'Звично',
@@ -96,6 +97,9 @@ const UK: Dict = {
   byTime: 'Час вийшов — перемагає той, хто тримає більше',
   hintNodeFull: 'Цей вузол уже веде всі свої стежки',
   hintBlocked: 'На шляху вузол — веди стежку через нього',
+  openSeat: 'Вільне місце',
+  allSeated: 'Усі на місцях — можна починати',
+  shareCode: 'Продиктуй код другові або тицьни, щоб скопіювати',
 };
 
 const PL: Dict = {
@@ -122,6 +126,9 @@ const PL: Dict = {
   byTime: 'Koniec czasu — wygrywa większa część planszy',
   hintNodeFull: 'Ten węzeł prowadzi już wszystkie szlaki',
   hintBlocked: 'Na drodze jest węzeł — poprowadź szlak przez niego',
+  openSeat: 'Wolne miejsce',
+  allSeated: 'Wszyscy na miejscach — można zaczynać',
+  shareCode: 'Podyktuj kod znajomemu lub dotknij, aby skopiować',
 };
 
 const DE: Dict = {
@@ -148,6 +155,9 @@ const DE: Dict = {
   byTime: 'Zeit ist um — die größere Hälfte gewinnt',
   hintNodeFull: 'Dieser Knoten führt schon alle seine Pfade',
   hintBlocked: 'Ein Knoten ist im Weg — führe den Pfad durch ihn',
+  openSeat: 'Freier Platz',
+  allSeated: 'Alle sitzen — es kann losgehen',
+  shareCode: 'Sag den Code einem Freund oder tippe zum Kopieren',
 };
 
 const ES: Dict = {
@@ -174,6 +184,9 @@ const ES: Dict = {
   byTime: 'Se acabó el tiempo — gana quien tiene más',
   hintNodeFull: 'Este nodo ya lleva todos sus senderos',
   hintBlocked: 'Hay un nodo en medio — encadena el sendero por él',
+  openSeat: 'Asiento libre',
+  allSeated: 'Todos sentados — se puede empezar',
+  shareCode: 'Dicta el código a un amigo o toca para copiar',
 };
 
 const PT: Dict = {
@@ -200,6 +213,9 @@ const PT: Dict = {
   byTime: 'Tempo esgotado — ganha quem tem mais',
   hintNodeFull: 'Este nó já leva todos os seus trilhos',
   hintBlocked: 'Há um nó no caminho — encadeia o trilho por ele',
+  openSeat: 'Lugar livre',
+  allSeated: 'Todos sentados — podem começar',
+  shareCode: 'Dita o código a um amigo ou toca para copiar',
 };
 
 export const LANGS: Record<string, { name: string; dict: Dict }> = {

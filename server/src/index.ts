@@ -3,7 +3,7 @@ import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
-import { BotLevel, ClientMsg } from '@ants/shared';
+import { BotLevel, ClientMsg, MAX_SLOTS, MIN_SLOTS } from '@ants/shared';
 import { makeCode, normalizeCode } from './codes.js';
 import { Room, sanitizeName } from './room.js';
 import { closeDb, initDb } from './db.js';
@@ -103,11 +103,10 @@ function handle(ws: WebSocket, msg: ClientMsg): void {
 
       return;
     }
-    const slots = Math.max(2, Math.min(4, Math.floor(Number(msg.slots) || 2)));
-    const bots = Math.max(0, Math.min(slots - 1, Math.floor(Number(msg.bots) || 0)));
+    const slots = Math.max(MIN_SLOTS, Math.min(MAX_SLOTS, Math.floor(Number(msg.slots) || 2)));
     const level: BotLevel = 'normal';
     const code = makeCode((c) => rooms.has(c));
-    const room = new Room(code, slots, bots, level, dropRoom);
+    const room = new Room(code, slots, level, dropRoom);
     rooms.set(code, room);
     room.join(ws, sanitizeName(msg.name));
     membership.set(ws, room);
@@ -137,6 +136,12 @@ function handle(ws: WebSocket, msg: ClientMsg): void {
 
   const room = membership.get(ws);
   if (!room) return;
+
+  if (msg.t === 'bot') {
+    if (room.isHost(ws)) room.setBot(Math.floor(Number(msg.slot)), !!msg.on);
+
+    return;
+  }
 
   if (msg.t === 'ready') {
     // Only the first connected seat may start; everyone else is a guest.

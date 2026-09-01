@@ -40,17 +40,25 @@ export class Room {
   constructor(
     readonly code: string,
     readonly slots: number,
-    botCount: number,
     readonly level: BotLevel,
     private readonly onEmpty: (room: Room) => void,
   ) {
+    // Every seat starts open. A room that fills itself with bots on creation
+    // cannot be joined by the friend it was created for -- which is exactly
+    // what happened, and it reported itself as "room full".
     for (let i = 0; i < slots; i++) {
       this.seats.push({ slot: i, name: `#${i + 1}`, ws: null, bot: null, isBot: false });
     }
-    // Bots fill from the back, so joining humans always take the low slots.
-    for (let i = 0; i < Math.min(botCount, slots - 1); i++) {
-      this.seats[slots - 1 - i].isBot = true;
-    }
+  }
+
+  /** Host puts a bot on an empty seat, or takes it off to reopen the seat. */
+  setBot(slot: number, on: boolean): void {
+    if (this.started) return;
+    const seat = this.seats[slot];
+    if (!seat || seat.ws) return;
+    seat.isBot = on;
+    seat.name = on ? 'bot' : `#${slot + 1}`;
+    this.announce();
   }
 
   get empty(): boolean {
