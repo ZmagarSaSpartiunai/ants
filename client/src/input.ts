@@ -1,9 +1,16 @@
 import { blockedBy, canLink, Command, GameState, KINDS, linksFree, NEUTRAL } from '@ants/shared';
 import { DragPreview, Renderer } from './render.js';
 
-/** Fingers are wide: node hits get a generous margin, trails a fat corridor. */
-const NODE_MARGIN = 14;
-const TRAIL_MARGIN = 22;
+/**
+ * Touch margins, in **screen** pixels. A finger pad is about nine millimetres
+ * across whatever the board is scaled to, so these are converted through the
+ * renderer rather than written in field units -- at phone scale a field-unit
+ * margin shrinks to a few pixels and nothing is hittable.
+ */
+const NODE_MARGIN_PX = 20;
+const TRAIL_MARGIN_PX = 22;
+/** But not so generous that neighbouring nodes overlap on a big screen. */
+const MAX_MARGIN = 46;
 
 export interface InputHost {
   state(): GameState | null;
@@ -40,14 +47,14 @@ export class Input {
     this.moved = false;
 
     const w = this.r.toWorld(e.clientX, e.clientY);
-    const node = hitNode(s, w.x, w.y);
+    const node = hitNode(s, w.x, w.y, this.margin(NODE_MARGIN_PX));
     if (node && node.owner === this.host.you()) {
       this.drag = { fromNode: node.id, x: w.x, y: w.y, valid: false };
 
       return;
     }
 
-    const trail = hitTrail(s, w.x, w.y);
+    const trail = hitTrail(s, w.x, w.y, this.margin(TRAIL_MARGIN_PX));
     if (!trail) return;
     this.downTrail = trail.id;
     if (trail.owner === this.host.you()) {
@@ -73,7 +80,7 @@ export class Input {
     const w = this.r.toWorld(e.clientX, e.clientY);
     this.moved = true;
     if (!this.drag) return;
-    const target = hitNode(s, w.x, w.y);
+    const target = hitNode(s, w.x, w.y, this.margin(NODE_MARGIN_PX));
     this.drag.x = w.x;
     this.drag.y = w.y;
     this.drag.valid = !!target && canLink(s, this.host.you(), this.drag.fromNode, target.id);
@@ -108,7 +115,7 @@ export class Input {
     this.drag = null;
     if (!drag || !s) return;
     const w = this.r.toWorld(e.clientX, e.clientY);
-    const target = hitNode(s, w.x, w.y);
+    const target = hitNode(s, w.x, w.y, this.margin(NODE_MARGIN_PX));
     if (!target || target.id === drag.fromNode) return;
     if (canLink(s, this.host.you(), drag.fromNode, target.id)) {
       this.host.send({ t: 'link', p: this.host.you(), from: drag.fromNode, to: target.id });
@@ -129,6 +136,11 @@ export class Input {
     }
   };
 
+  /** A screen-pixel margin expressed in field units for the current board size. */
+  private margin(px: number): number {
+    return Math.min(MAX_MARGIN, px * this.r.unitsPerPixel);
+  }
+
   /** Called when a match ends or restarts so a held finger cannot leak state. */
   reset(): void {
     this.drag = null;
@@ -138,12 +150,12 @@ export class Input {
   }
 }
 
-export function hitNode(s: GameState, x: number, y: number) {
+export function hitNode(s: GameState, x: number, y: number, margin: number) {
   let best: (typeof s.nodes)[number] | null = null;
   let bestD = Infinity;
   for (const n of s.nodes) {
     const d = Math.hypot(n.x - x, n.y - y);
-    if (d < KINDS[n.kind].radius + NODE_MARGIN && d < bestD) {
+    if (d < KINDS[n.kind].radius + margin && d < bestD) {
       best = n;
       bestD = d;
     }
@@ -152,7 +164,7 @@ export function hitNode(s: GameState, x: number, y: number) {
   return best;
 }
 
-export function hitTrail(s: GameState, x: number, y: number) {
+export function hitTrail(s: GameState, x: number, y: number, margin: number) {
   let best: (typeof s.trails)[number] | null = null;
   let bestD = Infinity;
   for (const t of s.trails) {
@@ -160,7 +172,7 @@ export function hitTrail(s: GameState, x: number, y: number) {
     const b = s.nodes[t.to];
     if (!a || !b) continue;
     const d = pointToSegment(x, y, a.x, a.y, b.x, b.y);
-    if (d < TRAIL_MARGIN && d < bestD) {
+    if (d < margin && d < bestD) {
       best = t;
       bestD = d;
     }

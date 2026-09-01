@@ -49,6 +49,7 @@ const EN: Dict = {
   openSeat: 'Open seat',
   allSeated: 'Everyone is seated — start when ready',
   shareCode: 'Read the code out to a friend, or tap to copy',
+  fullscreen: 'Fullscreen',
 };
 
 const UK: Dict = {
@@ -98,6 +99,7 @@ const UK: Dict = {
   openSeat: 'Вільне місце',
   allSeated: 'Усі на місцях — можна починати',
   shareCode: 'Продиктуй код другові або тицьни, щоб скопіювати',
+  fullscreen: 'На весь екран',
 };
 
 const PL: Dict = {
@@ -126,6 +128,7 @@ const PL: Dict = {
   openSeat: 'Wolne miejsce',
   allSeated: 'Wszyscy na miejscach — można zaczynać',
   shareCode: 'Podyktuj kod znajomemu lub dotknij, aby skopiować',
+  fullscreen: 'Pełny ekran',
 };
 
 const DE: Dict = {
@@ -154,6 +157,7 @@ const DE: Dict = {
   openSeat: 'Freier Platz',
   allSeated: 'Alle sitzen — es kann losgehen',
   shareCode: 'Sag den Code einem Freund oder tippe zum Kopieren',
+  fullscreen: 'Vollbild',
 };
 
 const ES: Dict = {
@@ -182,6 +186,7 @@ const ES: Dict = {
   openSeat: 'Asiento libre',
   allSeated: 'Todos sentados — se puede empezar',
   shareCode: 'Dicta el código a un amigo o toca para copiar',
+  fullscreen: 'Pantalla completa',
 };
 
 const PT: Dict = {
@@ -210,6 +215,7 @@ const PT: Dict = {
   openSeat: 'Lugar livre',
   allSeated: 'Todos sentados — podem começar',
   shareCode: 'Dita o código a um amigo ou toca para copiar',
+  fullscreen: 'Ecrã inteiro',
 };
 
 export const LANGS: Record<string, { name: string; dict: Dict }> = {

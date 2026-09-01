@@ -16,7 +16,14 @@ html, body {
   background: var(--soil);
   color: var(--text);
   font: 15px/1.45 "Segoe UI", Roboto, "Noto Sans", system-ui, -apple-system, sans-serif;
+  /* A game is not a document: no rubber-banding, no pull-to-refresh, no
+     text selection or magnifier from holding a finger on the board. */
   overscroll-behavior: none;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #app { position: fixed; inset: 0; }
@@ -61,6 +68,8 @@ canvas {
 
 button {
   font: inherit;
+  /* Comfortably hittable with a thumb without measuring anything. */
+  min-height: 44px;
   color: var(--text);
   background: rgba(38, 30, 22, 0.9);
   border: 1px solid var(--line);
@@ -196,3 +205,32 @@ select {
 .pip.urgent { color: #ffb37a; border-color: rgba(255, 140, 80, 0.45); }
 
 .lobby-list button.seat { padding: 4px 10px; font-size: 13px; border-radius: 8px; }
+
+
+/* ---------------------------------------------------------------- на телефоні */
+
+@media (orientation: portrait) and (max-width: 900px) {
+  /* The legend eats three lines at this width; it moves behind the ⓘ button. */
+  .legend { display: none; }
+  .legend.open { display: flex; }
+}
+
+@media (max-width: 700px) {
+  #hud { gap: 6px; padding-left: 8px; padding-right: 8px; }
+  .pip { padding: 4px 8px; font-size: 12px; }
+  .legend { font-size: 11px; gap: 4px 10px; padding: 7px 10px; }
+  .panel { padding: 18px; border-radius: 14px; }
+  .panel h1 { font-size: 23px; }
+  .code { font-size: 26px; }
+  button { padding: 11px 14px; }
+  .seg button { padding: 10px 12px; }
+  .row > label { min-width: 78px; }
+}
+
+/* A short board on a wide screen: keep the controls clear of the field. */
+@media (max-height: 480px) {
+  .legend { display: none; }
+  .legend.open { display: flex; }
+}
+
+.icon-btn { padding: 0 12px; min-width: 44px; }

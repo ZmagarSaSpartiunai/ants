@@ -101,7 +101,14 @@ export class App {
 
     setLang(detectLang());
     loadSound();
-    window.addEventListener('resize', () => this.renderer.resize());
+    const fit = (): void => this.renderer.resize();
+    window.addEventListener('resize', fit);
+    // Rotating a phone fires this before the new size is settled on some
+    // browsers, so re-fit once more on the next frame.
+    window.addEventListener('orientationchange', () => {
+      fit();
+      requestAnimationFrame(fit);
+    });
     window.addEventListener('pointerdown', () => unlock(), { once: true });
     this.renderer.resize();
     this.drawLegend();
@@ -416,12 +423,27 @@ export class App {
     // No clock and no trail counter: a match ends when someone has taken the
     // board, and the trail limit lives on each node as dots, where it can
     // actually be acted on.
-    const html = `<div class="pips">${pips}</div><button id="menuBtn">${t('menu')}</button>`;
+    // Fullscreen matters most on a phone, where the browser chrome eats a
+    // quarter of a board that is already small. iOS Safari has no such API, so
+    // the button only appears where it would actually work.
+    const canFull = !!document.documentElement.requestFullscreen;
+    const html =
+      `<div class="pips">${pips}</div>` +
+      `<button id="legendBtn" class="icon-btn" title="${t('legend')}">i</button>` +
+      (canFull ? `<button id="fullBtn" class="icon-btn" title="${t('fullscreen')}">⛶</button>` : '') +
+      `<button id="menuBtn">${t('menu')}</button>`;
     if (this.hud.innerHTML !== html) {
       this.hud.innerHTML = html;
       this.hud.querySelector('#menuBtn')!.addEventListener('click', () => {
         this.screen = 'menu';
         this.render();
+      });
+      this.hud.querySelector('#legendBtn')!.addEventListener('click', () => {
+        this.legend.classList.toggle('open');
+      });
+      this.hud.querySelector('#fullBtn')?.addEventListener('click', () => {
+        if (document.fullscreenElement) void document.exitFullscreen();
+        else void document.documentElement.requestFullscreen().catch(() => undefined);
       });
     }
   }
@@ -493,7 +515,7 @@ export class App {
     sel.addEventListener('change', () => {
       setLang(sel.value);
       this.drawLegend();
-      this.showMenu();
+        this.showMenu();
     });
     p.querySelector('#snd')!.addEventListener('click', () => {
       setSound(!soundOn());

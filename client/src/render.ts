@@ -48,6 +48,13 @@ export class Renderer {
   private ox = 0;
   private oy = 0;
   private meadow: HTMLCanvasElement | null = null;
+  /**
+   * On a tall screen the board is turned a quarter turn so it runs along the
+   * long side. Upright, a 3:2 field fills about a quarter of a phone; turned,
+   * it fills most of it. The board has no inherent "up", so nothing is lost --
+   * and it beats telling somebody to rotate their phone and leaving it at that.
+   */
+  private turned = false;
   private time = 0;
   readonly effects: Effect[] = [];
 
@@ -63,19 +70,49 @@ export class Renderer {
     const h = this.canvas.clientHeight;
     this.canvas.width = Math.max(1, Math.round(w * dpr));
     this.canvas.height = Math.max(1, Math.round(h * dpr));
-    this.scale = Math.min(w / FIELD_W, h / FIELD_H);
-    this.ox = (w - FIELD_W * this.scale) / 2;
-    this.oy = (h - FIELD_H * this.scale) / 2;
+    this.turned = h > w * 1.05;
+    if (this.turned) {
+      this.scale = Math.min(w / FIELD_H, h / FIELD_W);
+      this.ox = (w - FIELD_H * this.scale) / 2;
+      this.oy = (h - FIELD_W * this.scale) / 2;
+    } else {
+      this.scale = Math.min(w / FIELD_W, h / FIELD_H);
+      this.ox = (w - FIELD_W * this.scale) / 2;
+      this.oy = (h - FIELD_H * this.scale) / 2;
+    }
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  /**
+   * How many field units one screen pixel covers. Anything sized for a finger
+   * has to be measured in screen pixels and converted through this: a margin
+   * written in field units shrinks with the board, and on a phone the whole
+   * board is a third of its desktop size.
+   */
+  get unitsPerPixel(): number {
+    return 1 / this.scale;
   }
 
   toWorld(clientX: number, clientY: number): { x: number; y: number } {
     const r = this.canvas.getBoundingClientRect();
+    const sx = clientX - r.left - this.ox;
+    const sy = clientY - r.top - this.oy;
+    // Exactly the inverse of the transform laid down in draw().
+    if (this.turned) {
+      return { x: FIELD_W - sy / this.scale, y: sx / this.scale };
+    }
 
-    return {
-      x: (clientX - r.left - this.ox) / this.scale,
-      y: (clientY - r.top - this.oy) / this.scale,
-    };
+    return { x: sx / this.scale, y: sy / this.scale };
+  }
+
+  /**
+   * Turns the local frame back to match the screen. Everything the player has
+   * to *read* -- the garrison plate, a floating number, the little link dots --
+   * has to sit upright and above the thing it belongs to, whichever way round
+   * the board is. Only the board itself turns.
+   */
+  private upright(): void {
+    if (this.turned) this.ctx.rotate(Math.PI / 2);
   }
 
   addEffect(kind: Effect['kind'], x: number, y: number, color: string): void {
@@ -105,6 +142,10 @@ export class Renderer {
 
     ctx.save();
     ctx.translate(this.ox, this.oy);
+    if (this.turned) {
+      ctx.translate(0, FIELD_W * this.scale);
+      ctx.rotate(-Math.PI / 2);
+    }
     ctx.scale(this.scale, this.scale);
     ctx.beginPath();
     ctx.rect(0, 0, FIELD_W, FIELD_H);
@@ -367,6 +408,7 @@ export class Renderer {
     const text = String(Math.floor(n.count));
     const y = -r * (n.kind === 'hive' ? 1.55 : 1.2);
     ctx.save();
+    this.upright();
     ctx.font = `700 ${Math.round(r * 0.6)}px "Segoe UI", Roboto, system-ui, sans-serif`;
     const w = Math.max(r * 0.9, ctx.measureText(text).width + r * 0.44);
     const h = r * 0.64;
@@ -428,6 +470,7 @@ export class Renderer {
     const gap = 9;
     const y = r * 1.02;
     ctx.save();
+    this.upright();
     for (let i = 0; i < total; i++) {
       const x = (i - (total - 1) / 2) * gap;
       ctx.beginPath();
@@ -504,7 +547,9 @@ export class Renderer {
       if (e.kind === 'float') {
         const rise = (1 - k) * 36;
         ctx.globalAlpha = Math.min(1, k * 2.2);
-        ctx.translate(e.x, e.y - 58 - rise);
+        ctx.translate(e.x, e.y);
+        this.upright();
+        ctx.translate(0, -58 - rise);
         ctx.font = '800 22px "Segoe UI", Roboto, system-ui, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
