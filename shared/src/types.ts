@@ -21,6 +21,13 @@ export interface KindSpec {
   growth: number;
   /** Growth stops here. Deliveries may still stack above it. */
   cap: number;
+  /**
+   * Trails this node may feed at once. This is the only limit on building:
+   * there is no range and nothing blocks a line. A player who cannot tell why
+   * a drag failed stops trusting the control entirely, and "this nest already
+   * runs its three trails" is a reason you can see on the node itself.
+   */
+  links: number;
   radius: number;
 }
 
@@ -39,12 +46,15 @@ export interface KindSpec {
  * out with no enemy in sight reads as a broken game, and it was.
  *
  * Rerun `node tools/balance.mjs` after changing any rule -- these numbers only
- * hold for the rules they were measured against.
+ * hold for the rules they were measured against. Dropping the reach and
+ * obstacle rules in favour of a per-node trail budget changed them completely:
+ * matches went from routinely running out the clock with 135 captures apiece
+ * to finishing on their own in about 80 seconds with 22.
  */
 export const KINDS: Record<NodeKind, KindSpec> = {
-  nest: { unit: 'worker', growth: 2.6, cap: 24, radius: 30 },
-  den: { unit: 'beetle', growth: 0.75, cap: 10, radius: 27 },
-  hive: { unit: 'wasp', growth: 0.6, cap: 7, radius: 25 },
+  nest: { unit: 'worker', growth: 2.6, cap: 30, links: 3, radius: 30 },
+  den: { unit: 'beetle', growth: 0.75, cap: 10, links: 2, radius: 27 },
+  hive: { unit: 'wasp', growth: 0.6, cap: 7, links: 1, radius: 25 },
 };
 
 export interface UnitSpec {
@@ -92,9 +102,6 @@ export const PACKET_INTERVAL = 0.55;
  */
 export const CAPTURE_FOOTHOLD = 1.5;
 
-/** Trails a single player may hold at once. Keeps the board readable. */
-export const MAX_TRAILS_PER_PLAYER = 8;
-
 /**
  * Matches are timed, and that is a rule rather than a safety net. Cutting
  * supply is deliberately an answer to a stronger opponent, so this game does
@@ -127,12 +134,6 @@ export const LINK_SURGE = 0.6;
  * on to pour out the whole garrison in a second.
  */
 export const SURGE_COOLDOWN = TICK_HZ * 5;
-
-/**
- * Ground trails are paths dug across the map, so they have a reach. Air routes
- * ignore this -- being able to strike anywhere is the whole point of a hive.
- */
-export const LINK_RANGE = 620;
 
 /** Un-held chewing bleeds off this many times faster than it accumulates, so a
  *  trail cannot be worn down in unattended nibbles. */

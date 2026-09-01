@@ -7,9 +7,7 @@ import {
   GameState,
   KINDS,
   UNITS,
-  LINK_RANGE,
   LINK_SURGE,
-  MAX_TRAILS_PER_PLAYER,
   NEUTRAL,
   Trail,
 } from './types.js';
@@ -97,8 +95,6 @@ export class Bot {
     const out: Option[] = [];
     const mine = s.nodes.filter((n) => n.owner === this.player);
     if (!mine.length) return out;
-    const trails = s.trails.filter((t) => t.owner === this.player);
-    if (trails.length >= MAX_TRAILS_PER_PLAYER) return out;
 
     for (const from of mine) {
       const spec = KINDS[from.kind];
@@ -111,13 +107,14 @@ export class Bot {
         if (to.id === from.id) continue;
         if (!canLink(s, this.player, from.id, to.id)) continue;
         const d = distance(from, to);
-        if (!air && d > LINK_RANGE) continue;
 
         let score = this.targetValue(s, to, from);
-        // Distance is a real cost: a long column is a column that can be cut.
-        score -= d / 220;
-        // Wasps exist to hit what nobody can reach, so let them reach.
-        if (air) score += 1.4 + (d > LINK_RANGE ? 1.2 : 0);
+        // Nothing forbids a long trail any more, but one is still a worse idea:
+        // the column spends longer walking, and longer exposed to being cut.
+        score -= d / 260;
+        // A hive's one route is precious, so spend it on something far away
+        // that nothing on the ground could have reached.
+        if (air) score += 1.2 + d / 500;
         if (score > 0) out.push({ cmd: { t: 'link', p: this.player, from: from.id, to: to.id }, score });
       }
     }

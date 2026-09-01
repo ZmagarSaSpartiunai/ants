@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Bot } from './bot.js';
-import { applyCommand, blockedBy, canLink, createGame, distance, step, trailById } from './sim.js';
-import { GameNode, GameState, KINDS, LINK_RANGE, MATCH_LIMIT_TICKS, NEUTRAL, TICK_HZ } from './types.js';
+import { applyCommand, canLink, createGame, distance, linksFree, step, trailById } from './sim.js';
+import { GameNode, GameState, KINDS, MATCH_LIMIT_TICKS, NEUTRAL, TICK_HZ } from './types.js';
 
 function run(s: GameState, seconds: number, bots: Bot[] = []): void {
   for (let i = 0; i < seconds * TICK_HZ; i++) {
@@ -12,10 +12,10 @@ function run(s: GameState, seconds: number, bots: Bot[] = []): void {
   }
 }
 
-/** Nearest node satisfying a predicate that is still within linking range. */
+/** Nearest node satisfying a predicate. Range is no longer a rule. */
 function nearby(s: GameState, from: GameNode, ok: (n: GameNode) => boolean): GameNode | undefined {
   return s.nodes
-    .filter((n) => n.id !== from.id && ok(n) && distance(from, n) <= LINK_RANGE)
+    .filter((n) => n.id !== from.id && ok(n))
     .sort((a, b) => distance(from, a) - distance(from, b))[0];
 }
 
@@ -179,26 +179,39 @@ test('a bot match lasts long enough to be a match', () => {
   assert.ok(avg <= 180, `a match cannot outlast its own clock: ${avg.toFixed(0)}s`);
 });
 
-test('a node standing in the way blocks a ground trail but not a flight', () => {
+test('a node feeds only as many trails as its kind allows', () => {
   const s = createGame(8821, 2);
-  const a = s.nodes[s.players[0].home];
-  // Find a genuine case: two nodes with a third sitting on the line between.
-  let pair: [GameNode, GameNode] | null = null;
-  for (const b of s.nodes) {
-    if (b.id === a.id) continue;
-    if (distance(a, b) > LINK_RANGE) continue;
-    if (blockedBy(s, a.id, b.id)) {
-      pair = [a, b];
-      break;
-    }
-  }
-  assert.ok(pair, 'the map should contain at least one blocked line');
-  const [from, to] = pair!;
-  assert.equal(canLink(s, 0, from.id, to.id), false, 'ants must walk through the node in the way');
+  const home = s.nodes[s.players[0].home];
+  home.count = 40;
+  const budget = KINDS[home.kind].links;
+  const targets = s.nodes.filter((n) => n.id !== home.id).slice(0, budget + 2);
 
-  // The same line from a hive is fine: wasps fly over whatever is below.
-  from.kind = 'hive';
-  assert.ok(canLink(s, 0, from.id, to.id), 'a flight ignores what stands on the ground');
+  for (let i = 0; i < budget; i++) {
+    assert.equal(linksFree(s, home.id), budget - i);
+    assert.ok(
+      applyCommand(s, { t: 'link', p: 0, from: home.id, to: targets[i].id }),
+      `link ${i + 1} of ${budget} should be allowed`,
+    );
+  }
+  assert.equal(linksFree(s, home.id), 0);
+  assert.equal(
+    applyCommand(s, { t: 'link', p: 0, from: home.id, to: targets[budget].id }),
+    false,
+    'a node past its budget must refuse',
+  );
+
+  // Freeing one slot makes room again -- the budget is per node, not per match.
+  assert.ok(applyCommand(s, { t: 'unlink', p: 0, trail: s.trails[0].id }));
+  assert.ok(applyCommand(s, { t: 'link', p: 0, from: home.id, to: targets[budget].id }));
+});
+
+test('distance and anything in the way are no longer rules', () => {
+  const s = createGame(8821, 2);
+  const home = s.nodes[s.players[0].home];
+  const dist = (n: GameNode) => distance(home, n);
+  const farthest = s.nodes.filter((n) => n.id !== home.id).sort((a, b) => dist(b) - dist(a))[0];
+  assert.ok(dist(farthest) > 700, 'the test needs a genuinely distant node');
+  assert.ok(canLink(s, 0, home.id, farthest.id), 'any node may be linked to any other');
 });
 
 test('columns fight wherever they meet, not only in the same corridor', () => {

@@ -1,15 +1,14 @@
 import {
-  blockedBy,
   canLink,
   FIELD_H,
   FIELD_W,
   GameNode,
   GameState,
   KINDS,
-  LINK_RANGE,
   NEUTRAL,
   NodeKind,
   Packet,
+  outgoing,
   Trail,
   UNITS,
 } from '@ants/shared';
@@ -114,7 +113,6 @@ export class Renderer {
     ctx.clip();
 
     this.drawGround();
-    if (drag) this.drawReach(s, you, drag);
     for (const t of s.trails) this.drawTrail(s, t);
     for (const p of pending) this.drawPending(s, p.from, p.to);
     if (drag) this.drawDrag(s, drag);
@@ -145,70 +143,6 @@ export class Renderer {
       ctx.fillRect(0, 0, FIELD_W, FIELD_H);
       ctx.globalAlpha = 1;
     }
-  }
-
-  /**
-   * The one thing a player cannot guess: how far a trail can be dug. Shown as
-   * ground the moment a drag starts, because "nothing happened" on release is
-   * indistinguishable from a broken control.
-   */
-  private drawReach(s: GameState, you: number, drag: DragPreview): void {
-    const from = s.nodes[drag.fromNode];
-    if (!from) return;
-    const ctx = this.ctx;
-    ctx.save();
-    if (from.kind === 'hive') {
-      // Wasps fly: the whole map is in range, and that is the point of a hive.
-      ctx.fillStyle = alpha(playerColor(you), 0.05);
-      ctx.fillRect(0, 0, FIELD_W, FIELD_H);
-    } else {
-      ctx.beginPath();
-      ctx.arc(from.x, from.y, LINK_RANGE, 0, Math.PI * 2);
-      ctx.fillStyle = alpha(playerColor(you), 0.05);
-      ctx.fill();
-      ctx.setLineDash([6, 9]);
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = alpha(playerColor(you), 0.22);
-      ctx.stroke();
-    }
-
-    // Spokes: every place this node may actually reach, drawn the instant the
-    // finger goes down. A rule the player has to infer from failures is not a
-    // rule they will ever learn.
-    ctx.setLineDash([]);
-    for (const n of s.nodes) {
-      if (n.id === from.id) continue;
-      if (canLink(s, you, from.id, n.id)) {
-        ctx.strokeStyle = alpha(playerColor(you), 0.3);
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(from.x, from.y);
-        ctx.lineTo(n.x, n.y);
-        ctx.stroke();
-        continue;
-      }
-      if (from.kind === 'hive') continue;
-      // In range but something is in the way: stop the spoke at the obstacle
-      // so the reason is visible rather than merely the refusal.
-      const blocker = Math.hypot(n.x - from.x, n.y - from.y) <= LINK_RANGE
-        ? blockedBy(s, from.id, n.id)
-        : undefined;
-      if (!blocker) continue;
-      ctx.strokeStyle = 'rgba(224,90,61,0.32)';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 5]);
-      ctx.beginPath();
-      ctx.moveTo(from.x, from.y);
-      ctx.lineTo(blocker.x, blocker.y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.strokeStyle = 'rgba(224,90,61,0.75)';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.arc(blocker.x, blocker.y, KINDS[blocker.kind].radius + 4, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.restore();
   }
 
   private drawTrail(s: GameState, t: Trail): void {
@@ -430,7 +364,10 @@ export class Renderer {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    if (owned) this.drawFillRing(n, r, color, starving);
+    if (owned) {
+      this.drawFillRing(n, r, color, starving);
+      this.drawLinkSlots(s, n, r, color);
+    }
 
     // A ring marks a player's supply root -- the thing actually worth defending.
     const home = s.players.find((p) => p.alive && p.home === n.id);
@@ -484,6 +421,34 @@ export class Renderer {
       ctx.beginPath();
       ctx.arc(0, 0, r + 8.5, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, (n.count - cap) / cap));
       ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /**
+   * How many more trails this node can feed, as dots under it. This is the one
+   * rule that limits building, so it belongs on the thing it limits rather
+   * than in a counter somewhere at the top of the screen.
+   */
+  private drawLinkSlots(s: GameState, n: GameNode, r: number, color: string): void {
+    const ctx = this.ctx;
+    const total = KINDS[n.kind].links;
+    const used = outgoing(s, n.id);
+    const gap = 9;
+    const y = r + (n.kind === 'hive' ? 4 : 13);
+    ctx.save();
+    for (let i = 0; i < total; i++) {
+      const x = (i - (total - 1) / 2) * gap;
+      ctx.beginPath();
+      ctx.arc(x, y, 3, 0, Math.PI * 2);
+      if (i < used) {
+        ctx.fillStyle = alpha(color, 0.95);
+        ctx.fill();
+      } else {
+        ctx.strokeStyle = alpha(color, 0.55);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
     }
     ctx.restore();
   }

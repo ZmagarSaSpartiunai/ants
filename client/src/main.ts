@@ -7,7 +7,6 @@ import {
   createGame,
   DT,
   MATCH_LIMIT_TICKS,
-  MAX_TRAILS_PER_PLAYER,
   GameState,
   NEUTRAL,
   RoomPlayer,
@@ -416,12 +415,12 @@ export class App {
       })
       .join('');
     this.legend.hidden = false;
-    const mine = s.trails.filter((x) => x.owner === this.youId).length;
     const left = Math.max(0, MATCH_LIMIT_TICKS - s.tick) / 20;
     const clock = `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
+    // No global trail counter any more: the limit lives on each node, and is
+    // drawn there as dots, which is the only place it can be acted on.
     const html =
       `<div class="pips">${pips}</div>` +
-      `<div class="pip" title="${t('trails')}">\u2933 <b>${mine}/${MAX_TRAILS_PER_PLAYER}</b></div>` +
       `<div class="pip${left < 30 ? ' urgent' : ''}">${clock}</div>` +
       `<button id="menuBtn">${t('menu')}</button>`;
     if (this.hud.innerHTML !== html) {

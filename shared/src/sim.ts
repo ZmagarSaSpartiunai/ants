@@ -10,10 +10,8 @@ import {
   GameNode,
   GameState,
   KINDS,
-  LINK_RANGE,
   LINK_SURGE,
   MATCH_LIMIT_TICKS,
-  MAX_TRAILS_PER_PLAYER,
   NEUTRAL,
   Packet,
   PACKET_INTERVAL,
@@ -99,38 +97,6 @@ export function distance(a: GameNode, b: GameNode): number {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-/** Distance from a point to a segment: used to test what a trail runs over. */
-function pointToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const len2 = dx * dx + dy * dy;
-  if (len2 === 0) return Math.sqrt((px - ax) * (px - ax) + (py - ay) * (py - ay));
-  let t = ((px - ax) * dx + (py - ay) * dy) / len2;
-  t = Math.max(0, Math.min(1, t));
-  const qx = ax + dx * t;
-  const qy = ay + dy * t;
-
-  return Math.sqrt((px - qx) * (px - qx) + (py - qy) * (py - qy));
-}
-
-/**
- * A node standing between two others blocks the ground between them. Without
- * this a trail was drawn straight over anything in the way, as if the node
- * were not there -- and the whole point of a map is that its layout decides
- * what you can reach. Now a chain has to actually go through the node, which
- * is also what gives cutting a chain something to cut.
- */
-export function blockedBy(s: GameState, fromId: number, toId: number): GameNode | undefined {
-  const a = s.nodes[fromId];
-  const b = s.nodes[toId];
-  for (const n of s.nodes) {
-    if (n.id === fromId || n.id === toId) continue;
-    if (pointToSegment(n.x, n.y, a.x, a.y, b.x, b.y) < KINDS[n.kind].radius + 8) return n;
-  }
-
-  return undefined;
-}
-
 export function canLink(s: GameState, p: number, fromId: number, toId: number): boolean {
   if (s.over) return false;
   const player = s.players[p];
@@ -142,14 +108,27 @@ export function canLink(s: GameState, p: number, fromId: number, toId: number): 
   if (!from || !to || from.id === to.id) return false;
   if (from.owner !== p) return false;
   if (s.trails.some((t) => t.owner === p && t.from === fromId && t.to === toId)) return false;
-  if (s.trails.filter((t) => t.owner === p).length >= MAX_TRAILS_PER_PLAYER) return false;
-  const air = from.kind === 'hive';
-  if (air) return true;
-  if (distance(from, to) > LINK_RANGE) return false;
-  // Wasps fly over anything; ants have to walk around, or rather through.
-  if (blockedBy(s, fromId, toId)) return false;
+  // The only limit on building. Any node may be linked to any other, at any
+  // distance, over anything in between -- what runs out is the source node's
+  // own capacity to feed trails.
+  if (outgoing(s, fromId) >= KINDS[from.kind].links) return false;
 
   return true;
+}
+
+/** Trails currently fed by a node, whoever owns them. */
+export function outgoing(s: GameState, nodeId: number): number {
+  let n = 0;
+  for (const t of s.trails) if (t.from === nodeId) n++;
+
+  return n;
+}
+
+export function linksFree(s: GameState, nodeId: number): number {
+  const node = s.nodes[nodeId];
+  if (!node) return 0;
+
+  return Math.max(0, KINDS[node.kind].links - outgoing(s, nodeId));
 }
 
 export function applyCommand(s: GameState, cmd: Command): boolean {

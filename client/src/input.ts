@@ -1,13 +1,4 @@
-import {
-  blockedBy,
-  canLink,
-  Command,
-  GameState,
-  KINDS,
-  LINK_RANGE,
-  MAX_TRAILS_PER_PLAYER,
-  NEUTRAL,
-} from '@ants/shared';
+import { canLink, Command, GameState, KINDS, linksFree, NEUTRAL } from '@ants/shared';
 import { DragPreview, Renderer } from './render.js';
 
 /** Fingers are wide: node hits get a generous margin, trails a fat corridor. */
@@ -127,14 +118,10 @@ export class Input {
     // Say why nothing happened; silence reads as a broken control.
     const me = s.players[this.host.you()];
     if (me && me.chewing !== -1) this.host.hint('hintBusy');
-    else if (s.nodes[drag.fromNode].kind !== 'hive' && farther(s, drag.fromNode, target.id)) {
-      this.host.hint('hintRange');
-    } else if (s.trails.some((t) => t.owner === this.host.you() && t.from === drag.fromNode && t.to === target.id)) {
+    else if (s.trails.some((t) => t.owner === this.host.you() && t.from === drag.fromNode && t.to === target.id)) {
       this.host.hint('hintOwn');
-    } else if (blockedBy(s, drag.fromNode, target.id)) {
-      this.host.hint('hintBlocked');
-    } else if (s.trails.filter((t) => t.owner === this.host.you()).length >= MAX_TRAILS_PER_PLAYER) {
-      this.host.hint('hintTrails');
+    } else if (linksFree(s, drag.fromNode) === 0) {
+      this.host.hint('hintNodeFull');
     } else {
       this.host.hint('hintLink');
     }
@@ -147,13 +134,6 @@ export class Input {
     this.chewing = false;
     this.downTrail = -1;
   }
-}
-
-function farther(s: GameState, from: number, to: number): boolean {
-  const a = s.nodes[from];
-  const b = s.nodes[to];
-
-  return Math.hypot(b.x - a.x, b.y - a.y) > LINK_RANGE;
 }
 
 export function hitNode(s: GameState, x: number, y: number) {
