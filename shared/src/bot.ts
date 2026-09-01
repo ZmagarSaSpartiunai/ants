@@ -1,8 +1,8 @@
 import { Rng } from './rng.js';
 import { canLink, chewCost, distance, outputRate, trailLoad } from './sim.js';
 
-/** Seconds of streaming a bot assumes when judging whether a target falls. */
-const ASSAULT_WINDOW = 9;
+/** Seconds of streaming a bot weighs a target against. */
+const ASSAULT_WINDOW = 20;
 import {
   Command,
   DT,
@@ -151,10 +151,13 @@ export class Bot {
     const feeding = s.trails.filter((t) => t.to === to.id && t.owner === this.player).length;
     const power = UNITS[KINDS[from.kind].unit].power;
     const attack = outputRate(s, from) * ASSAULT_WINDOW * power + inbound;
-    score = attack > to.count ? 2.4 : 0.2 - (to.count - attack) / 20;
+    // A ratio, not a threshold. Requiring a target to fall to this one node
+    // alone made the bot stop attacking altogether once garrisons grew past
+    // what a single stream could ever chew through, and matches never ended.
+    score = 0.5 + Math.min(2.2, attack / Math.max(1, to.count));
     // Concentration is the whole answer to a defended node, so reward joining
     // an assault already under way -- but not past the point of overkill.
-    if (feeding > 0 && feeding < 3) score += 1.6;
+    if (feeding > 0 && feeding < 3) score += 1.8;
 
     // Specials are worth more than plain nests: they are the map's variety.
     if (to.kind === 'den') score += 1.1;

@@ -50,19 +50,17 @@ export interface KindSpec {
  * 20 about 1.7 -- so stacking a nest up is what makes it dangerous, while the
  * stack itself stays put as the wall an attacker has to break.
  *
- * Output has to be this high for a reason: there is no clock, so a match must
- * end on its own. A garrison is refilled by reinforcement exactly as fast as an
- * attacker empties it, so the only thing that can decide a front is bringing
- * more streams to bear than the defender can answer. Weaker output was measured
- * leaving three to eight matches in thirty running forever.
+ * A nest at 30 sends about one and a half ants a second, one at 150 about five.
+ * Low on purpose: ants are individuals here, so the rate is the rate you watch
+ * them leave at.
  *
  * Rerun `node tools/balance.mjs` after changing any rule -- these numbers only
  * hold for the rules they were measured against.
  */
 export const KINDS: Record<NodeKind, KindSpec> = {
-  nest: { unit: 'worker', growth: 0.34, cap: 150, outBase: 2.0, outPer: 0.9, links: 3, radius: 30 },
-  den: { unit: 'beetle', growth: 0.16, cap: 120, outBase: 0.56, outPer: 0.225, links: 2, radius: 27 },
-  hive: { unit: 'wasp', growth: 0.13, cap: 100, outBase: 0.5, outPer: 0.162, links: 1, radius: 25 },
+  nest: { unit: 'worker', growth: 0.34, cap: 150, outBase: 0.6, outPer: 0.03, links: 3, radius: 30 },
+  den: { unit: 'beetle', growth: 0.16, cap: 120, outBase: 0.24, outPer: 0.009, links: 2, radius: 27 },
+  hive: { unit: 'wasp', growth: 0.13, cap: 100, outBase: 0.2, outPer: 0.006, links: 1, radius: 25 },
 };
 
 export interface UnitSpec {
@@ -112,14 +110,16 @@ export const CHEW_MAX = 9.0;
  * the node produces, and the garrison only ever falls when an enemy column
  * actually arrives.
  *
- * Output is not fixed, though -- it grows with the garrison. That is what makes
- * stacking a nest up worth doing: a big nest is both a thick wall and a wide
- * stream, without the stream eating the wall.
+ * Output rises with the garrison, which is what makes stacking a nest up worth
+ * doing: a big nest is both a thick wall and a wide stream, without the stream
+ * eating the wall.
  *
- * Columns leave in pulses rather than as a steady dribble, so an attack is
- * something you can watch land and a defender can see their number drop.
+ * Ants leave **one at a time**. Not batches: a batch of a hundred takes a whole
+ * node in a blink and makes the board unreadable, and single ants are also the
+ * only way the unit rules can be watched happening -- one beetle meeting one
+ * worker, killing it, walking on, and going down with the next.
  */
-export const PULSE_INTERVAL = 1.2;
+export const UNIT_SIZE = 1;
 
 /**
  * A freshly taken node starts with at least this much, even if the column that
@@ -128,6 +128,19 @@ export const PULSE_INTERVAL = 1.2;
  * fought over.
  */
 export const CAPTURE_FOOTHOLD = 1.5;
+
+/**
+ * An arriving enemy takes down more than an arriving friend puts up.
+ *
+ * Without this the game cannot end. Sending costs a node nothing, so a defender
+ * is refilled at exactly the rate an attacker empties them, and two evenly
+ * matched fronts sit there for ever -- measured: five matches in twenty-four
+ * never finished, and one ran twice as long as the rest put together.
+ *
+ * A small edge to the attacker means equal pressure still moves a front, which
+ * is what lets a match end on its own with no clock to end it.
+ */
+export const ATTACK_EDGE = 1.35;
 
 /**
  * What a node still produces when its supply chain is broken. Cutting used to
@@ -151,8 +164,6 @@ export interface GameNode {
   kind: NodeKind;
   owner: number;
   count: number;
-  /** Tick of this node's last outgoing pulse. */
-  pulseAt: number;
   /**
    * Arrivals that would have pushed the garrison past its cap. A full node
    * passes them straight on down its own trails instead of wasting them, which
@@ -163,6 +174,8 @@ export interface GameNode {
 
 export interface Trail {
   id: number;
+  /** Fractional production waiting to become a whole ant. */
+  pending: number;
   owner: number;
   from: number;
   to: number;

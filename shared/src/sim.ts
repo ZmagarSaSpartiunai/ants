@@ -1,4 +1,5 @@
 import {
+  ATTACK_EDGE,
   CAPTURE_FOOTHOLD,
   CHEW_BASE,
   CHEW_DECAY,
@@ -11,7 +12,7 @@ import {
   KINDS,
   NEUTRAL,
   Packet,
-  PULSE_INTERVAL,
+  UNIT_SIZE,
   PlayerState,
   TICK_HZ,
   SPEED_FROM_STRENGTH,
@@ -181,11 +182,12 @@ export function applyCommand(s: GameState, cmd: Command): boolean {
       len: distance(from, to),
       air: from.kind === 'hive',
       chew: 0,
+      pending: 0,
     };
+    // Start half full so the first ant sets off almost at once: a trail that
+    // does nothing for a second reads as a trail that failed.
+    trail.pending = UNIT_SIZE * 0.5;
     s.trails.push(trail);
-    // Let this node pulse on the next tick rather than waiting out its cycle:
-    // a trail that does nothing for a second reads as a trail that failed.
-    from.pulseAt = s.tick - Math.round(PULSE_INTERVAL * TICK_HZ);
 
     return true;
   }
@@ -274,7 +276,7 @@ export function step(s: GameState): SimEvent[] {
   recomputeSupply(s);
   grow(s);
   chew(s, events);
-  pulse(s);
+  emit(s);
   move(s, events);
   clash(s, events);
   sweep(s);
@@ -344,37 +346,47 @@ export function outputRate(s: GameState, n: GameNode): number {
 }
 
 /**
- * Send a column down each trail. The garrison is never touched here: what
- * leaves is production, plus anything that arrived while the node was already
- * full and had nowhere to go but onward.
+ * Ants leave one at a time. Production accrues on each trail until a whole ant
+ * has been made, and then that ant sets off. The garrison is never touched: what
+ * leaves is production, plus anything that arrived at a node already full and
+ * had nowhere to go but onward.
  */
-function pulse(s: GameState): void {
-  const period = Math.round(PULSE_INTERVAL * TICK_HZ);
-  const byNode = new Map<number, Trail[]>();
-  for (const t of s.trails) {
-    let list = byNode.get(t.from);
-    if (!list) byNode.set(t.from, (list = []));
-    list.push(t);
-  }
+function emit(s: GameState): void {
+  const outCount = new Map<number, number>();
+  for (const t of s.trails) outCount.set(t.from, (outCount.get(t.from) ?? 0) + 1);
 
   for (const n of s.nodes) {
-    const trails = byNode.get(n.id);
+    const trails = outCount.get(n.id);
     if (!trails) {
       // Nothing to pass overflow into, so it is simply lost.
       n.carry = 0;
-      continue;
     }
-    if (s.tick - n.pulseAt < period) continue;
-    n.pulseAt = s.tick;
-    const total = outputRate(s, n) * PULSE_INTERVAL + n.carry;
-    n.carry = 0;
-    if (total <= 0.01) continue;
-    const each = total / trails.length;
-    for (const t of trails) {
+  }
+
+  for (const t of s.trails) {
+    const from = s.nodes[t.from];
+    const to = s.nodes[t.to];
+    const share = outCount.get(t.from) ?? 1;
+    // Overflow is only passed on somewhere it can actually be used. Forwarding
+    // it into a node that is already full let two full nodes pointing at each
+    // other bounce the same ants back and forth for ever, and the board filled
+    // with thousands of them.
+    const forward = to && to.owner === t.owner && to.count >= KINDS[to.kind].cap ? 0 : from.carry;
+    // Split, not multiplied: a node's output is a property of the node, so
+    // opening a second trail spreads it rather than doubling it. Without the
+    // divisor every extra trail conjured ants out of nothing.
+    t.pending += (outputRate(s, from) * DT + forward) / share;
+    if (t.pending < UNIT_SIZE) continue;
+    // Several ants can come due in one tick when a node is very strong, but
+    // each still walks as its own body.
+    let ready = Math.floor(t.pending / UNIT_SIZE);
+    t.pending -= ready * UNIT_SIZE;
+    const unit = KINDS[from.kind].unit;
+    while (ready-- > 0) {
       s.packets.push({
         owner: t.owner,
-        unit: KINDS[n.kind].unit,
-        amount: each,
+        unit,
+        amount: UNIT_SIZE,
         from: t.from,
         to: t.to,
         pos: 0,
@@ -383,6 +395,7 @@ function pulse(s: GameState): void {
       });
     }
   }
+  for (const n of s.nodes) n.carry = 0;
 }
 
 function move(s: GameState, events: SimEvent[]): void {
@@ -420,7 +433,7 @@ function arrive(s: GameState, p: Packet, events: SimEvent[]): void {
   }
 
   const power = UNITS[p.unit].power;
-  const damage = p.amount * power;
+  const damage = p.amount * power * ATTACK_EDGE;
   events.push({ t: 'delta', node: node.id, amount: -damage, hostile: true, by: p.owner });
   if (damage <= node.count) {
     node.count -= damage;

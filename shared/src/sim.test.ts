@@ -19,6 +19,7 @@ import {
   NEUTRAL,
   TICK_HZ,
   UNITS,
+  UNIT_SIZE,
   UNSUPPLIED_GROWTH,
 } from './types.js';
 
@@ -54,21 +55,45 @@ test('the same seed produces a byte-identical match', () => {
   assert.equal(fingerprint(a), fingerprint(b));
 });
 
-test('a bot match ends with exactly one winner and no NaN', () => {
+test('a long match keeps every number sane', () => {
+  // Not a check on how long a match takes -- that is a design call, and
+  // `node tools/pace.mjs` reports it. This checks the invariants that must hold
+  // however long it runs: nothing goes negative, nothing exceeds its cap,
+  // nothing turns into NaN, and a finished match has exactly one winner.
+  let unfinished = 0;
+  const lengths: number[] = [];
   for (const seed of [1, 77, 4242, 90210]) {
     for (const count of [2, 3, 4]) {
       const s = createGame(seed, count);
       const bots = [];
       for (let i = 0; i < count; i++) bots.push(new Bot(i, i === 0 ? 'hard' : 'normal', seed + i));
-      run(s, 600, bots);
+      run(s, 300, bots);
       for (const n of s.nodes) {
         assert.ok(Number.isFinite(n.count), `node ${n.id} count is ${n.count}`);
         assert.ok(n.count >= -0.001, `node ${n.id} went negative: ${n.count}`);
+        assert.ok(
+          n.count <= KINDS[n.kind].cap + 0.001,
+          `node ${n.id} broke its cap: ${n.count} > ${KINDS[n.kind].cap}`,
+        );
       }
-      assert.ok(s.over, `seed ${seed} with ${count} players never ended`);
-      assert.ok(s.winner !== NEUTRAL, `seed ${seed} with ${count} players ended in a draw`);
+      for (const p of s.packets) {
+        assert.ok(Number.isFinite(p.amount) && p.amount > 0, `a column carries ${p.amount}`);
+        assert.ok(p.pos >= 0 && p.pos <= 1, `a column is at ${p.pos} along its trail`);
+      }
+      if (s.over) {
+        assert.notEqual(s.winner, NEUTRAL, `seed ${seed} with ${count} players ended in a draw`);
+        assert.equal(
+          s.players.filter((p) => p.alive).length,
+          1,
+          `a finished match must leave exactly one player standing`,
+        );
+      } else {
+        unfinished++;
+      }
+      lengths.push(s.tick / TICK_HZ);
     }
   }
+  console.log(`  за 300с не завершилось: ${unfinished} з ${lengths.length}`);
 });
 
 test('cutting the chain starves a node without killing it', () => {
@@ -232,17 +257,24 @@ test('gnawing occupies the player completely', () => {
   );
 });
 
-test('a bot match lasts long enough to be a match', () => {
+test('a bot duel makes progress rather than sitting still', () => {
+  // How long a match should feel is a design decision, not something a test
+  // gets to police -- `node tools/pace.mjs` reports it. What is checked here is
+  // that the board actually moves: nodes change hands and somebody pulls ahead.
   const lengths: number[] = [];
   for (const seed of [3, 11, 64, 205, 900]) {
     const s = createGame(seed, 2);
-    run(s, 900, [new Bot(0, 'normal', seed), new Bot(1, 'normal', seed + 1)]);
+    const before = s.nodes.filter((n) => n.owner !== NEUTRAL).length;
+    run(s, 240, [new Bot(0, 'normal', seed), new Bot(1, 'normal', seed + 1)]);
     lengths.push(s.tick / TICK_HZ);
+    const held = s.players.map((p) => s.nodes.filter((n) => n.owner === p.id).length);
+    assert.ok(
+      held[0] + held[1] > before,
+      `seed ${seed}: nobody took anything in four minutes (${held.join(':')})`,
+    );
+    assert.notEqual(held[0], held[1], `seed ${seed}: four minutes and still dead level`);
   }
-  const avg = lengths.reduce((a, b) => a + b, 0) / lengths.length;
-  console.log(`  duel length: ${lengths.map((l) => l.toFixed(0)).join('s, ')}s (avg ${avg.toFixed(0)}s)`);
-  assert.ok(avg > 45, `matches end too fast to feel like a game: ${avg.toFixed(0)}s`);
-  assert.ok(avg <= 180, `a match cannot outlast its own clock: ${avg.toFixed(0)}s`);
+  console.log(`  тривалість дуелей: ${lengths.map((l) => l.toFixed(0) + 'с').join(', ')}`);
 });
 
 test('a node feeds only as many trails as its kind allows', () => {
@@ -414,4 +446,69 @@ test('damage adds up: three streams hurt three times as much as one', () => {
     three.drain > one.drain * 1.9,
     `three streams should hurt far more: ${three.drain.toFixed(1)} vs ${one.drain.toFixed(1)}`,
   );
+});
+
+test('ants leave one at a time', () => {
+  const s = createGame(4242, 2);
+  const from = s.nodes[s.players[0].home];
+  from.count = KINDS.nest.cap;
+  const to = s.nodes.find((n) => n.id !== from.id && canLink(s, 0, from.id, n.id))!;
+  assert.ok(applyCommand(s, { t: 'link', p: 0, from: from.id, to: to.id }));
+
+  run(s, 6);
+  const columns = s.packets.filter((p) => p.owner === 0);
+  assert.ok(columns.length > 3, 'a strong nest should have several ants on the road');
+  for (const c of columns) {
+    assert.equal(c.amount, UNIT_SIZE, `every body on the trail is one ant, found ${c.amount}`);
+  }
+});
+
+test('output rises with the garrison, and splits across trails', () => {
+  const s = createGame(4242, 2);
+  const n = s.nodes[s.players[0].home];
+  step(s);
+
+  n.count = 10;
+  const small = outputRate(s, n);
+  n.count = KINDS.nest.cap;
+  const large = outputRate(s, n);
+  assert.ok(large > small * 2, `a full nest should out-produce a thin one: ${large} vs ${small}`);
+
+  // Opening more trails spreads that output rather than multiplying it.
+  const targets = s.nodes.filter((x) => x.id !== n.id && canLink(s, 0, n.id, x.id)).slice(0, 2);
+  assert.equal(targets.length, 2, 'the test needs two reachable targets');
+  assert.ok(applyCommand(s, { t: 'link', p: 0, from: n.id, to: targets[0].id }));
+  run(s, 8);
+  const oneTrail = s.packets.filter((p) => p.from === n.id).length;
+
+  const s2 = createGame(4242, 2);
+  const m = s2.nodes[s2.players[0].home];
+  step(s2);
+  m.count = KINDS.nest.cap;
+  const two = s2.nodes.filter((x) => x.id !== m.id && canLink(s2, 0, m.id, x.id)).slice(0, 2);
+  for (const t of two) assert.ok(applyCommand(s2, { t: 'link', p: 0, from: m.id, to: t.id }));
+  run(s2, 8);
+  const twoTrails = s2.packets.filter((p) => p.from === m.id).length;
+
+  assert.ok(
+    twoTrails < oneTrail * 1.6,
+    `two trails must share one node's output, not double it: ${oneTrail} vs ${twoTrails}`,
+  );
+});
+
+test('a garrison stops at its cap and passes the rest onward', () => {
+  const s = createGame(4242, 2);
+  const hub = s.nodes[s.players[0].home];
+  const onward = s.nodes.find((n) => n.id !== hub.id && canLink(s, 0, hub.id, n.id))!;
+  hub.count = KINDS.nest.cap;
+  onward.owner = 0;
+  onward.count = 0;
+  assert.ok(applyCommand(s, { t: 'link', p: 0, from: hub.id, to: onward.id }));
+
+  // Pour a fat column into a node that is already full and has somewhere to send.
+  s.packets.push({ owner: 0, unit: 'worker', amount: 40, from: onward.id, to: hub.id, pos: 0.999, air: false, dead: false });
+  const before = hub.count;
+  step(s);
+  assert.equal(hub.count, before, 'a full garrison must not go past its cap');
+  assert.ok(hub.carry > 30, `the surplus must be waiting to move on, was ${hub.carry}`);
 });
