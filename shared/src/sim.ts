@@ -19,6 +19,7 @@ import {
   SURGE_COOLDOWN,
   Trail,
   UNITS,
+  UNSUPPLIED_GROWTH,
 } from './types.js';
 import { generateMap } from './maps.js';
 
@@ -292,12 +293,23 @@ export function step(s: GameState): SimEvent[] {
   return events;
 }
 
+/**
+ * What this node actually produces per second right now. Everything else -- how
+ * fast it fills, how much a trail may carry out of it -- is derived from this,
+ * so a node can never export more than it makes and drain itself to nothing.
+ */
+export function growthRate(s: GameState, n: GameNode): number {
+  if (n.owner === NEUTRAL) return 0;
+
+  return KINDS[n.kind].growth * (s.supplied[n.id] ? 1 : UNSUPPLIED_GROWTH);
+}
+
 function grow(s: GameState): void {
   for (const n of s.nodes) {
-    if (n.owner === NEUTRAL) continue;
-    if (!s.supplied[n.id]) continue;
-    const spec = KINDS[n.kind];
-    if (n.count < spec.cap) n.count = Math.min(spec.cap, n.count + spec.growth * DT);
+    const rate = growthRate(s, n);
+    if (rate <= 0) continue;
+    const cap = KINDS[n.kind].cap;
+    if (n.count < cap) n.count = Math.min(cap, n.count + rate * DT);
   }
 }
 
@@ -334,15 +346,17 @@ function chew(s: GameState, events: SimEvent[]): void {
 
 function drain(s: GameState): void {
   // A node exports a little less than it produces, split across its trails, so
-  // it still creeps upward while feeding them. The only things that lower a
-  // number are an enemy column and a cut supply line.
+  // it always creeps upward while feeding them. The only thing that lowers a
+  // number is an enemy column.
   const outCount = new Map<number, number>();
   for (const t of s.trails) outCount.set(t.from, (outCount.get(t.from) ?? 0) + 1);
 
   for (const t of s.trails) {
     const from = s.nodes[t.from];
     const spec = KINDS[from.kind];
-    const share = (spec.growth * EXPORT_RATIO) / (outCount.get(t.from) ?? 1);
+    // Derived from what the node is actually producing, not from its kind's
+    // nominal figure: a cut node exports less, exactly as it makes less.
+    const share = (growthRate(s, from) * EXPORT_RATIO) / (outCount.get(t.from) ?? 1);
     const amount = Math.min(from.count, share * DT);
     if (amount > 0) {
       from.count -= amount;

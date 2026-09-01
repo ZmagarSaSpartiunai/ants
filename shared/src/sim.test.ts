@@ -2,7 +2,15 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Bot } from './bot.js';
 import { applyCommand, blockedBy, canLink, createGame, distance, linksFree, step, trailById } from './sim.js';
-import { GameNode, GameState, KINDS, MATCH_LIMIT_TICKS, NEUTRAL, TICK_HZ } from './types.js';
+import {
+  GameNode,
+  GameState,
+  KINDS,
+  MATCH_LIMIT_TICKS,
+  NEUTRAL,
+  TICK_HZ,
+  UNSUPPLIED_GROWTH,
+} from './types.js';
 
 function run(s: GameState, seconds: number, bots: Bot[] = []): void {
   for (let i = 0; i < seconds * TICK_HZ; i++) {
@@ -53,38 +61,59 @@ test('a bot match ends with exactly one winner and no NaN', () => {
   }
 });
 
-test('cutting the chain freezes everything downstream', () => {
+test('cutting the chain starves a node without killing it', () => {
   const s = createGame(555, 2);
   const home = s.nodes[s.players[0].home];
   const far = nearby(s, home, (n) => n.owner === NEUTRAL && n.kind === 'nest')!;
   far.owner = 0;
-  far.count = 5;
   const onward = nearby(s, far, (n) => n.owner === NEUTRAL && n.kind === 'nest')!;
   onward.owner = 0;
-  onward.count = 5;
 
   assert.ok(applyCommand(s, { t: 'link', p: 0, from: home.id, to: far.id }));
   assert.ok(applyCommand(s, { t: 'link', p: 0, from: far.id, to: onward.id }));
   step(s);
   assert.ok(s.supplied[onward.id], 'the far node should be supplied through the chain');
-  run(s, 5);
-  assert.ok(onward.count > 5, 'a supplied node should have grown');
 
-  // Growth is what is under test, so clear the trails *and* the columns still
-  // walking them -- an arriving packet would otherwise look like growth.
+  // No trails and no columns: growth alone is under test. Both nodes start low
+  // so neither can hit the cap, which is what made the previous version of this
+  // test vacuous -- it compared two nodes that were both already full.
   s.trails.length = 0;
   s.packets.length = 0;
   step(s);
-  assert.equal(s.supplied[onward.id], false, 'cutting the first link must starve the chain');
+  assert.equal(s.supplied[onward.id], false, 'a node off the chain is not supplied');
+  assert.ok(s.supplied[home.id], 'a home supplies itself');
 
-  const starved = onward.count;
-  // The control has to have room left to grow into, or hitting the cap would
-  // look exactly like being starved.
-  const control = s.nodes[s.players[1].home];
-  control.count = 2;
+  onward.count = 1;
+  home.count = 1;
   run(s, 5);
-  assert.equal(onward.count, starved, `an unsupplied node kept growing: ${starved} -> ${onward.count}`);
-  assert.ok(control.count > 2, 'a supplied home must keep growing');
+  const cut = onward.count - 1;
+  const fed = home.count - 1;
+  assert.ok(cut > 0, `a cut node must still grow, grew ${cut}`);
+  assert.ok(fed > cut * 2, `a supplied node must grow far faster: ${fed} vs ${cut}`);
+  const ratio = cut / fed;
+  assert.ok(
+    Math.abs(ratio - UNSUPPLIED_GROWTH) < 0.02,
+    `cut growth should be ${UNSUPPLIED_GROWTH} of normal, was ${ratio.toFixed(3)}`,
+  );
+});
+
+test('a cut node with a trail out does not drain itself to nothing', () => {
+  const s = createGame(555, 2);
+  const home = s.nodes[s.players[0].home];
+  const far = nearby(s, home, (n) => n.owner === NEUTRAL && n.kind === 'nest')!;
+  far.owner = 0;
+  far.count = 12;
+  const onward = nearby(s, far, (n) => n.owner === NEUTRAL)!;
+
+  // `far` is cut off from home and still feeding a trail. It must not bleed out:
+  // an exporting node was pinned at zero forever, which is what turned whole
+  // boards into rows of zeroes.
+  assert.ok(applyCommand(s, { t: 'link', p: 0, from: far.id, to: onward.id }));
+  step(s);
+  assert.equal(s.supplied[far.id], false);
+  const before = far.count;
+  run(s, 30);
+  assert.ok(far.count >= before, `an exporting cut node drained: ${before} -> ${far.count}`);
 });
 
 test('a beetle column walks through a worker column', () => {

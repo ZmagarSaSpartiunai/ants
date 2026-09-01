@@ -123,6 +123,17 @@ export const MATCH_LIMIT_TICKS = TICK_HZ * 180;
 export const EXPORT_RATIO = 0.7;
 
 /**
+ * What a node still produces when its supply chain is broken. Cutting used to
+ * stop growth dead, and that produced boards where every node a player held sat
+ * at zero forever: a cut node with a trail out kept exporting while producing
+ * nothing, so it drained itself and stayed drained.
+ *
+ * A node always grows. Cutting makes it grow badly, which is punishment enough
+ * and leaves the board readable.
+ */
+export const UNSUPPLIED_GROWTH = 0.35;
+
+/**
  * Opening a trail sends this share of the garrison at once. This surge is the
  * attack: the steady trickle afterwards is only the node's production, so
  * taking anything defended means committing a stack, not waiting.
