@@ -9,8 +9,13 @@ export default defineConfig({
     cssCodeSplit: false,
     rollupOptions: { output: { manualChunks: undefined } },
   },
+  // The simulation is a workspace package, so Vite would happily pre-bundle it
+  // once and keep serving that copy after a rebuild -- which means playing an
+  // old set of rules while the source says otherwise.
+  optimizeDeps: { exclude: ['@ants/shared'] },
   server: {
     port: 5173,
+    watch: { ignored: ['!**/shared/dist/**'] },
     proxy: { '/ws': { target: 'ws://127.0.0.1:8787', ws: true } },
   },
 });

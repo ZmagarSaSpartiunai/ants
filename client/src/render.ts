@@ -1,4 +1,5 @@
 import {
+  blockedBy,
   canLink,
   FIELD_H,
   FIELD_W,
@@ -163,11 +164,48 @@ export class Renderer {
     } else {
       ctx.beginPath();
       ctx.arc(from.x, from.y, LINK_RANGE, 0, Math.PI * 2);
-      ctx.fillStyle = alpha(playerColor(you), 0.055);
+      ctx.fillStyle = alpha(playerColor(you), 0.05);
       ctx.fill();
       ctx.setLineDash([6, 9]);
       ctx.lineWidth = 1.5;
-      ctx.strokeStyle = alpha(playerColor(you), 0.28);
+      ctx.strokeStyle = alpha(playerColor(you), 0.22);
+      ctx.stroke();
+    }
+
+    // Spokes: every place this node may actually reach, drawn the instant the
+    // finger goes down. A rule the player has to infer from failures is not a
+    // rule they will ever learn.
+    ctx.setLineDash([]);
+    for (const n of s.nodes) {
+      if (n.id === from.id) continue;
+      if (canLink(s, you, from.id, n.id)) {
+        ctx.strokeStyle = alpha(playerColor(you), 0.3);
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(n.x, n.y);
+        ctx.stroke();
+        continue;
+      }
+      if (from.kind === 'hive') continue;
+      // In range but something is in the way: stop the spoke at the obstacle
+      // so the reason is visible rather than merely the refusal.
+      const blocker = Math.hypot(n.x - from.x, n.y - from.y) <= LINK_RANGE
+        ? blockedBy(s, from.id, n.id)
+        : undefined;
+      if (!blocker) continue;
+      ctx.strokeStyle = 'rgba(224,90,61,0.32)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 5]);
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(blocker.x, blocker.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.strokeStyle = 'rgba(224,90,61,0.75)';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(blocker.x, blocker.y, KINDS[blocker.kind].radius + 4, 0, Math.PI * 2);
       ctx.stroke();
     }
     ctx.restore();

@@ -1,11 +1,13 @@
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
-import { extname, join, normalize, resolve } from 'node:path';
+import { dirname, extname, join, normalize, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { BotLevel, ClientMsg } from '@ants/shared';
 import { makeCode, normalizeCode } from './codes.js';
 import { Room, sanitizeName } from './room.js';
 import { closeDb, initDb } from './db.js';
+import { gateEnabled, handleGate, hasPass } from './gate.js';
 
 const PORT = Number(process.env.PORT ?? 8787);
 const HOST = process.env.HOST ?? '127.0.0.1';
@@ -20,7 +22,11 @@ const MAX_MSGS_PER_SEC = 40;
  * second hostname pointed at it would serve the panel instead of the game.
  * One process, one port, and nothing to break next door.
  */
-const WEB_ROOT = resolve(process.env.WEB_ROOT ?? '../client/dist');
+// Resolved against this file, not the working directory: the default has to
+// hold whether the server is started from the repo root or from anywhere else.
+const WEB_ROOT = resolve(
+  process.env.WEB_ROOT ?? join(dirname(fileURLToPath(import.meta.url)), '../../client/dist'),
+);
 
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -151,15 +157,25 @@ const http = createServer((req: IncomingMessage, res: ServerResponse) => {
 
     return;
   }
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
-    res.writeHead(405).end();
+  void handleGate(req, res).then((answered) => {
+    if (answered) return;
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405).end();
 
-    return;
-  }
-  serveStatic(req, res);
+      return;
+    }
+    serveStatic(req, res);
+  });
 });
 
-const wss = new WebSocketServer({ server: http, path: '/ws', maxPayload: 16 * 1024 });
+const wss = new WebSocketServer({
+  server: http,
+  path: '/ws',
+  maxPayload: 16 * 1024,
+  // The gate has to cover the socket too, or the page is closed and the game
+  // behind it is not.
+  verifyClient: ({ req }, done) => done(hasPass(req)),
+});
 
 wss.on('connection', (ws: WebSocket) => {
   let alive = true;
@@ -209,6 +225,7 @@ setInterval(() => {
 }, 60000);
 
 initDb();
+console.log(gateEnabled() ? '[gate] password required' : '[gate] open to everyone');
 http.listen(PORT, HOST, () => {
   console.log(`[ants] listening on ${HOST}:${PORT}`);
 });

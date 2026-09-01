@@ -132,7 +132,7 @@ export const SURGE_COOLDOWN = TICK_HZ * 5;
  * Ground trails are paths dug across the map, so they have a reach. Air routes
  * ignore this -- being able to strike anywhere is the whole point of a hive.
  */
-export const LINK_RANGE = 480;
+export const LINK_RANGE = 620;
 
 /** Un-held chewing bleeds off this many times faster than it accumulates, so a
  *  trail cannot be worn down in unattended nibbles. */
