@@ -192,3 +192,5 @@ select {
 .legend svg { flex: none; opacity: 0.85; }
 
 .err { color: #ff9c7d; font-size: 14px; min-height: 18px; margin: 4px 0 0; }
+
+.pip.urgent { color: #ffb37a; border-color: rgba(255, 140, 80, 0.45); }

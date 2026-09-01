@@ -1,26 +1,36 @@
 import {
+  CAPTURE_FOOTHOLD,
   CHEW_BASE,
   CHEW_DECAY,
   CHEW_MAX,
   CHEW_PER_UNIT,
   Command,
   DT,
+  EXPORT_RATIO,
   GameNode,
   GameState,
   KINDS,
   LINK_RANGE,
+  LINK_SURGE,
+  MATCH_LIMIT_TICKS,
   MAX_TRAILS_PER_PLAYER,
   NEUTRAL,
   Packet,
   PACKET_INTERVAL,
   PlayerState,
+  SURGE_COOLDOWN,
   Trail,
   UNITS,
 } from './types.js';
 import { generateMap } from './maps.js';
 
+/** How close two opposing columns have to get before they are fighting. */
+const CLASH_RADIUS = 17;
+
 export type SimEvent =
   | { t: 'capture'; node: number; by: number; lost: number }
+  /** A column landed: how many arrived, and whether they arrived as enemies. */
+  | { t: 'delta'; node: number; amount: number; hostile: boolean; by: number }
   | { t: 'snap'; trail: number; by: number; x: number; y: number }
   | { t: 'clash'; x: number; y: number }
   | { t: 'eliminated'; p: number }
@@ -89,6 +99,38 @@ export function distance(a: GameNode, b: GameNode): number {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
+/** Distance from a point to a segment: used to test what a trail runs over. */
+function pointToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.sqrt((px - ax) * (px - ax) + (py - ay) * (py - ay));
+  let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  const qx = ax + dx * t;
+  const qy = ay + dy * t;
+
+  return Math.sqrt((px - qx) * (px - qx) + (py - qy) * (py - qy));
+}
+
+/**
+ * A node standing between two others blocks the ground between them. Without
+ * this a trail was drawn straight over anything in the way, as if the node
+ * were not there -- and the whole point of a map is that its layout decides
+ * what you can reach. Now a chain has to actually go through the node, which
+ * is also what gives cutting a chain something to cut.
+ */
+export function blockedBy(s: GameState, fromId: number, toId: number): GameNode | undefined {
+  const a = s.nodes[fromId];
+  const b = s.nodes[toId];
+  for (const n of s.nodes) {
+    if (n.id === fromId || n.id === toId) continue;
+    if (pointToSegment(n.x, n.y, a.x, a.y, b.x, b.y) < KINDS[n.kind].radius + 8) return n;
+  }
+
+  return undefined;
+}
+
 export function canLink(s: GameState, p: number, fromId: number, toId: number): boolean {
   if (s.over) return false;
   const player = s.players[p];
@@ -102,7 +144,10 @@ export function canLink(s: GameState, p: number, fromId: number, toId: number): 
   if (s.trails.some((t) => t.owner === p && t.from === fromId && t.to === toId)) return false;
   if (s.trails.filter((t) => t.owner === p).length >= MAX_TRAILS_PER_PLAYER) return false;
   const air = from.kind === 'hive';
-  if (!air && distance(from, to) > LINK_RANGE) return false;
+  if (air) return true;
+  if (distance(from, to) > LINK_RANGE) return false;
+  // Wasps fly over anything; ants have to walk around, or rather through.
+  if (blockedBy(s, fromId, toId)) return false;
 
   return true;
 }
@@ -115,7 +160,7 @@ export function applyCommand(s: GameState, cmd: Command): boolean {
     if (!canLink(s, cmd.p, cmd.from, cmd.to)) return false;
     const from = s.nodes[cmd.from];
     const to = s.nodes[cmd.to];
-    s.trails.push({
+    const trail: Trail = {
       id: s.nextTrailId++,
       owner: cmd.p,
       from: cmd.from,
@@ -125,7 +170,18 @@ export function applyCommand(s: GameState, cmd: Command): boolean {
       chew: 0,
       pending: 0,
       emit: 0,
-    });
+    };
+    // The surge is the attack. Afterwards the trail only carries production,
+    // so committing a stack is a decision, not something that happens to you.
+    if (s.tick - from.surgeAt >= SURGE_COOLDOWN) {
+      const surge = from.count * LINK_SURGE;
+      if (surge > 0.01) {
+        from.count -= surge;
+        trail.pending += surge;
+        from.surgeAt = s.tick;
+      }
+    }
+    s.trails.push(trail);
 
     return true;
   }
@@ -264,15 +320,16 @@ function chew(s: GameState, events: SimEvent[]): void {
 }
 
 function drain(s: GameState): void {
-  // A node's total output is fixed, so extra trails split it rather than
-  // multiply it. Otherwise spamming links would be free production.
+  // A node exports a little less than it produces, split across its trails, so
+  // it still creeps upward while feeding them. The only things that lower a
+  // number are an enemy column and a cut supply line.
   const outCount = new Map<number, number>();
   for (const t of s.trails) outCount.set(t.from, (outCount.get(t.from) ?? 0) + 1);
 
   for (const t of s.trails) {
     const from = s.nodes[t.from];
     const spec = KINDS[from.kind];
-    const share = spec.drain / (outCount.get(t.from) ?? 1);
+    const share = (spec.growth * EXPORT_RATIO) / (outCount.get(t.from) ?? 1);
     const amount = Math.min(from.count, share * DT);
     if (amount > 0) {
       from.count -= amount;
@@ -319,12 +376,14 @@ function arrive(s: GameState, p: Packet, events: SimEvent[]): void {
   if (node.owner === p.owner) {
     // Deliveries may stack above the cap; only growth stops there.
     node.count += p.amount;
+    events.push({ t: 'delta', node: node.id, amount: p.amount, hostile: false, by: p.owner });
 
     return;
   }
 
   const power = UNITS[p.unit].power;
   const damage = p.amount * power;
+  events.push({ t: 'delta', node: node.id, amount: -damage, hostile: true, by: p.owner });
   if (damage <= node.count) {
     node.count -= damage;
 
@@ -333,7 +392,7 @@ function arrive(s: GameState, p: Packet, events: SimEvent[]): void {
 
   const lost = node.owner;
   node.owner = p.owner;
-  node.count = (damage - node.count) / power;
+  node.count = Math.max(CAPTURE_FOOTHOLD, (damage - node.count) / power);
   events.push({ t: 'capture', node: node.id, by: p.owner, lost });
   onCapture(s, node, lost, events);
 }
@@ -370,57 +429,69 @@ function onCapture(s: GameState, node: GameNode, lost: number, events: SimEvent[
 }
 
 /**
- * Two columns walking the same line in opposite directions meet head-on. The
- * pair is keyed by the unordered node pair, so it does not matter who dug which
- * trail -- the ground between two nodes is one corridor.
+ * Columns of different owners fight wherever they actually meet on the ground.
+ *
+ * This used to key off the pair of nodes a trail ran between, which meant two
+ * streams only fought when they walked the exact same corridor in opposite
+ * directions. Everywhere else -- crossing lanes, converging attacks on one
+ * node -- the ants walked straight through each other, which is the opposite
+ * of what anyone watching expects. Meeting is a fact about position.
+ *
+ * Air columns are exempt: wasps fly over everything, and being unstoppable in
+ * the open is what a hive buys.
  */
 function clash(s: GameState, events: SimEvent[]): void {
-  const lanes = new Map<number, Packet[]>();
-  for (const p of s.packets) {
+  const cell = CLASH_RADIUS * 2;
+  // A uniform grid keeps this near-linear; packets number in the hundreds.
+  const grid = new Map<number, number[]>();
+  const px: number[] = [];
+  const py: number[] = [];
+
+  for (let i = 0; i < s.packets.length; i++) {
+    const p = s.packets[i];
     if (p.dead || p.air) continue;
-    const lo = Math.min(p.from, p.to);
-    const hi = Math.max(p.from, p.to);
-    const key = lo * 100000 + hi;
-    let list = lanes.get(key);
-    if (!list) lanes.set(key, (list = []));
-    list.push(p);
-  }
+    const from = s.nodes[p.from];
+    const to = s.nodes[p.to];
+    px[i] = from.x + (to.x - from.x) * p.pos;
+    py[i] = from.y + (to.y - from.y) * p.pos;
 
-  for (const list of lanes.values()) {
-    if (list.length < 2) continue;
-    for (let i = 0; i < list.length; i++) {
-      const a = list[i];
-      if (a.dead) continue;
-      for (let j = i + 1; j < list.length; j++) {
-        const b = list[j];
-        if (b.dead || a.dead) continue;
-        if (a.owner === b.owner) continue;
-        if (a.from === b.from) continue; // same direction, no head-on
-        // Both are measured from their own origin, so they have met once the
-        // two fractions cover the whole corridor.
-        if (a.pos + b.pos < 1) continue;
+    const cx = Math.floor(px[i] / cell);
+    const cy = Math.floor(py[i] / cell);
+    // Compare only against packets already placed, and walk neighbouring cells
+    // in a fixed order, so the outcome never depends on iteration accidents.
+    for (let dx = -1; dx <= 1 && !p.dead; dx++) {
+      for (let dy = -1; dy <= 1 && !p.dead; dy++) {
+        const bucket = grid.get((cx + dx) * 100000 + (cy + dy));
+        if (!bucket) continue;
+        for (const j of bucket) {
+          const q = s.packets[j];
+          if (q.dead || q.owner === p.owner) continue;
+          const ddx = px[i] - px[j];
+          const ddy = py[i] - py[j];
+          if (ddx * ddx + ddy * ddy > CLASH_RADIUS * CLASH_RADIUS) continue;
 
-        const sa = a.amount * UNITS[a.unit].toughness;
-        const sb = b.amount * UNITS[b.unit].toughness;
-        const from = s.nodes[a.from];
-        const to = s.nodes[a.to];
-        events.push({
-          t: 'clash',
-          x: from.x + (to.x - from.x) * a.pos,
-          y: from.y + (to.y - from.y) * a.pos,
-        });
-        if (sa > sb) {
-          a.amount = (sa - sb) / UNITS[a.unit].toughness;
-          b.dead = true;
-        } else if (sb > sa) {
-          b.amount = (sb - sa) / UNITS[b.unit].toughness;
-          a.dead = true;
-        } else {
-          a.dead = true;
-          b.dead = true;
+          const sp = p.amount * UNITS[p.unit].toughness;
+          const sq = q.amount * UNITS[q.unit].toughness;
+          events.push({ t: 'clash', x: (px[i] + px[j]) / 2, y: (py[i] + py[j]) / 2 });
+          if (sp > sq) {
+            p.amount = (sp - sq) / UNITS[p.unit].toughness;
+            q.dead = true;
+          } else if (sq > sp) {
+            q.amount = (sq - sp) / UNITS[q.unit].toughness;
+            p.dead = true;
+          } else {
+            p.dead = true;
+            q.dead = true;
+          }
+          if (p.dead) break;
         }
       }
     }
+    if (p.dead) continue;
+    const key = cx * 100000 + cy;
+    let bucket = grid.get(key);
+    if (!bucket) grid.set(key, (bucket = []));
+    bucket.push(i);
   }
 }
 
@@ -444,5 +515,42 @@ function checkEnd(s: GameState, events: SimEvent[]): void {
     s.over = true;
     s.winner = alive.length === 1 ? alive[0].id : NEUTRAL;
     events.push({ t: 'over', winner: s.winner });
+
+    return;
   }
+
+  if (s.tick >= MATCH_LIMIT_TICKS) {
+    s.over = true;
+    s.winner = leader(s, alive);
+    events.push({ t: 'over', winner: s.winner });
+  }
+}
+
+/** Who is ahead on the board: nodes first, ants only to break a tie. */
+function leader(s: GameState, alive: PlayerState[]): number {
+  let best = NEUTRAL;
+  let bestNodes = -1;
+  let bestForce = -1;
+  for (const p of alive) {
+    let nodes = 0;
+    let force = 0;
+    for (const n of s.nodes) {
+      if (n.owner !== p.id) continue;
+      nodes++;
+      force += n.count;
+    }
+    if (nodes > bestNodes || (nodes === bestNodes && force > bestForce)) {
+      // An exact tie leaves the previous leader in place, which is why the
+      // comparison is strict: a drawn match reports NEUTRAL.
+      if (nodes === bestNodes && force === bestForce) {
+        best = NEUTRAL;
+        continue;
+      }
+      best = p.id;
+      bestNodes = nodes;
+      bestForce = force;
+    }
+  }
+
+  return best;
 }

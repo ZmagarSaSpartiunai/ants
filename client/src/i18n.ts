@@ -44,6 +44,12 @@ const EN: Dict = {
   legendDen: 'Beetle den · breaks through',
   legendHive: 'Wasp hive · flies anywhere',
   legend: 'What is what',
+  trails: 'Trails',
+  hintBlocked: 'A node in the way blocks the trail — go through it',
+  hintTrails: 'No trails left — tap one of yours to remove it',
+  nodesLabel: 'Nodes',
+  antsLabel: 'Ants',
+  byTime: 'Time is up — most of the board wins',
 };
 
 const UK: Dict = {
@@ -88,6 +94,12 @@ const UK: Dict = {
   legendDen: 'Загін жуків · пробиває',
   legendHive: 'Осине гніздо · летить будь-куди',
   legend: 'Що є що',
+  trails: 'Стежки',
+  hintBlocked: 'Вузол на шляху перекриває стежку — веди через нього',
+  hintTrails: 'Стежок більше немає — тицьни на свою, щоб прибрати',
+  nodesLabel: 'Вузли',
+  antsLabel: 'Мурахи',
+  byTime: 'Час вийшов — перемагає той, хто тримає більше',
 };
 
 const PL: Dict = {
@@ -110,6 +122,12 @@ const PL: Dict = {
   legendDen: 'Legowisko żuków · przebija',
   legendHive: 'Gniazdo os · lata wszędzie',
   legend: 'Co jest czym',
+  trails: 'Szlaki',
+  hintBlocked: 'Węzeł na drodze blokuje szlak — poprowadź przez niego',
+  hintTrails: 'Brak wolnych szlaków — dotknij swojego, aby usunąć',
+  nodesLabel: 'Węzły',
+  antsLabel: 'Mrówki',
+  byTime: 'Koniec czasu — wygrywa większa część planszy',
 };
 
 const DE: Dict = {
@@ -132,6 +150,12 @@ const DE: Dict = {
   legendDen: 'Käferbau · bricht durch',
   legendHive: 'Wespennest · fliegt überall hin',
   legend: 'Was ist was',
+  trails: 'Pfade',
+  hintBlocked: 'Ein Knoten im Weg blockiert den Pfad — geh durch ihn',
+  hintTrails: 'Keine Pfade frei — tippe einen deiner an, um ihn zu entfernen',
+  nodesLabel: 'Knoten',
+  antsLabel: 'Ameisen',
+  byTime: 'Zeit ist um — die größere Hälfte gewinnt',
 };
 
 const ES: Dict = {
@@ -154,6 +178,12 @@ const ES: Dict = {
   legendDen: 'Guarida · atraviesa',
   legendHive: 'Avispero · vuela a todas partes',
   legend: 'Qué es qué',
+  trails: 'Senderos',
+  hintBlocked: 'Un nodo en medio bloquea el sendero — pasa por él',
+  hintTrails: 'Sin senderos libres — toca uno tuyo para quitarlo',
+  nodesLabel: 'Nodos',
+  antsLabel: 'Hormigas',
+  byTime: 'Se acabó el tiempo — gana quien tiene más',
 };
 
 const PT: Dict = {
@@ -176,6 +206,12 @@ const PT: Dict = {
   legendDen: 'Covil · atravessa',
   legendHive: 'Ninho de vespas · voa para todo o lado',
   legend: 'O que é o quê',
+  trails: 'Trilhos',
+  hintBlocked: 'Um nó no caminho bloqueia o trilho — passa por ele',
+  hintTrails: 'Sem trilhos livres — toca num teu para o remover',
+  nodesLabel: 'Nós',
+  antsLabel: 'Formigas',
+  byTime: 'Tempo esgotado — ganha quem tem mais',
 };
 
 export const LANGS: Record<string, { name: string; dict: Dict }> = {

@@ -1,4 +1,13 @@
-import { canLink, Command, GameState, KINDS, LINK_RANGE, NEUTRAL } from '@ants/shared';
+import {
+  blockedBy,
+  canLink,
+  Command,
+  GameState,
+  KINDS,
+  LINK_RANGE,
+  MAX_TRAILS_PER_PLAYER,
+  NEUTRAL,
+} from '@ants/shared';
 import { DragPreview, Renderer } from './render.js';
 
 /** Fingers are wide: node hits get a generous margin, trails a fat corridor. */
@@ -122,6 +131,10 @@ export class Input {
       this.host.hint('hintRange');
     } else if (s.trails.some((t) => t.owner === this.host.you() && t.from === drag.fromNode && t.to === target.id)) {
       this.host.hint('hintOwn');
+    } else if (blockedBy(s, drag.fromNode, target.id)) {
+      this.host.hint('hintBlocked');
+    } else if (s.trails.filter((t) => t.owner === this.host.you()).length >= MAX_TRAILS_PER_PLAYER) {
+      this.host.hint('hintTrails');
     } else {
       this.host.hint('hintLink');
     }

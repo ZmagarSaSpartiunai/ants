@@ -6,6 +6,8 @@ import {
   Command,
   createGame,
   DT,
+  MATCH_LIMIT_TICKS,
+  MAX_TRAILS_PER_PLAYER,
   GameState,
   NEUTRAL,
   RoomPlayer,
@@ -76,6 +78,8 @@ export class App {
   private isHost = false;
   private netError = '';
   private pending: { from: number; to: number; until: number }[] = [];
+  /** Arrivals batched per node: one readable number beats a blizzard of +2s. */
+  private deltas = new Map<number, { amount: number; hostile: boolean; by: number; at: number }>();
 
   private soloPlayers = 2;
   private soloLevel: BotLevel = 'normal';
@@ -121,6 +125,7 @@ export class App {
     this.pump(dt);
     const now2 = performance.now();
     this.pending = this.pending.filter((p) => p.until > now2);
+    this.flushDeltas();
 
     if (this.state) {
       this.renderer.draw(
@@ -212,6 +217,13 @@ export class App {
       } else if (e.t === 'snap') {
         this.renderer.addEffect('snap', e.x, e.y, '#ffd98a');
         sfx.snap();
+      } else if (e.t === 'delta') {
+        const cur = this.deltas.get(e.node);
+        if (cur && cur.hostile === e.hostile && cur.by === e.by) cur.amount += e.amount;
+        else {
+          if (cur) this.flushDelta(e.node, cur);
+          this.deltas.set(e.node, { amount: e.amount, hostile: e.hostile, by: e.by, at: performance.now() });
+        }
       } else if (e.t === 'clash') {
         this.renderer.addEffect('clash', e.x, e.y, '#ffffff');
         if (Math.random() < 0.25) sfx.clash();
@@ -219,6 +231,29 @@ export class App {
         this.finish(e.winner);
       }
     }
+  }
+
+  /** Batched arrivals become one floating number once the burst settles. */
+  private flushDeltas(): void {
+    const now = performance.now();
+    for (const [node, d] of [...this.deltas]) {
+      if (now - d.at < 450) continue;
+      this.deltas.delete(node);
+      this.flushDelta(node, d);
+    }
+  }
+
+  private flushDelta(node: number, d: { amount: number; hostile: boolean; by: number }): void {
+    const n = this.state?.nodes[node];
+    if (!n) return;
+    const value = Math.round(Math.abs(d.amount));
+    if (value < 1) return;
+    this.renderer.addFloat(
+      n.x,
+      n.y,
+      (d.amount < 0 ? '\u2212' : '+') + value,
+      d.hostile ? playerColor(d.by) : '#7fdc8a',
+    );
   }
 
   private finish(winner: number): void {
@@ -381,7 +416,14 @@ export class App {
       })
       .join('');
     this.legend.hidden = false;
-    const html = `<div class="pips">${pips}</div><button id="menuBtn">${t('menu')}</button>`;
+    const mine = s.trails.filter((x) => x.owner === this.youId).length;
+    const left = Math.max(0, MATCH_LIMIT_TICKS - s.tick) / 20;
+    const clock = `${Math.floor(left / 60)}:${String(Math.floor(left % 60)).padStart(2, '0')}`;
+    const html =
+      `<div class="pips">${pips}</div>` +
+      `<div class="pip" title="${t('trails')}">\u2933 <b>${mine}/${MAX_TRAILS_PER_PLAYER}</b></div>` +
+      `<div class="pip${left < 30 ? ' urgent' : ''}">${clock}</div>` +
+      `<button id="menuBtn">${t('menu')}</button>`;
     if (this.hud.innerHTML !== html) {
       this.hud.innerHTML = html;
       this.hud.querySelector('#menuBtn')!.addEventListener('click', () => {
@@ -555,9 +597,34 @@ export class App {
 
   private showOver(winner: number): void {
     const title = winner === this.youId ? t('won') : winner === NEUTRAL ? t('draw') : t('lost');
+    const s = this.state;
+    // A timed match is decided on the board, so the board has to be shown --
+    // otherwise the ending reads as arbitrary.
+    const byClock = !!s && s.tick >= MATCH_LIMIT_TICKS;
+    const rows = (s?.players ?? [])
+      .map((pl) => {
+        const own = s!.nodes.filter((n) => n.owner === pl.id);
+        const name = pl.id === this.youId ? t('you') : this.mode === 'solo' ? t('bot')
+          : (this.roomPlayers.find((r) => r.slot === pl.id)?.name ?? `#${pl.id + 1}`);
+
+        return {
+          nodes: own.length,
+          ants: Math.round(own.reduce((a, n) => a + n.count, 0)),
+          html: (win: boolean) => `<li><span class="dot" style="background:${playerColor(pl.id)}"></span>
+            <span>${escapeHtml(name)}</span>
+            <b style="margin-left:auto">${own.length}</b>
+            <span style="opacity:.6">${Math.round(own.reduce((a, n) => a + n.count, 0))}</span>
+            ${win ? ' \u25c0' : ''}</li>`,
+        };
+      })
+      .sort((a, b) => b.nodes - a.nodes || b.ants - a.ants);
+    const table = `<div class="row" style="gap:0;justify-content:flex-end;color:var(--muted);font-size:12px">
+        <span style="margin-right:14px">${t('nodesLabel')}</span><span>${t('antsLabel')}</span></div>
+      <ul class="lobby-list">${rows.map((r, i) => r.html(i === 0 && winner !== NEUTRAL)).join('')}</ul>`;
     const p = this.panel(`
       <h1>${title}</h1>
-      <p class="sub">${t('hintSupply')}</p>
+      <p class="sub">${byClock ? t('byTime') : t('hintSupply')}</p>
+      ${table}
       <div class="stack">
         <button class="primary" id="again">${t('again')}</button>
         <button id="menu">${t('menu')}</button>

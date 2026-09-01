@@ -6,7 +6,9 @@ import {
   GameNode,
   GameState,
   KINDS,
+  UNITS,
   LINK_RANGE,
+  LINK_SURGE,
   MAX_TRAILS_PER_PLAYER,
   NEUTRAL,
   Trail,
@@ -100,7 +102,8 @@ export class Bot {
 
     for (const from of mine) {
       const spec = KINDS[from.kind];
-      // Do not bleed a node dry: keep enough to survive a counterattack.
+      // A surge costs most of the garrison, so only spend one that is worth
+      // spending -- and keep enough behind to survive the counterattack.
       if (from.count < spec.cap * (1 - this.spec.commit)) continue;
       const air = from.kind === 'hive';
 
@@ -140,9 +143,20 @@ export class Bot {
       return score;
     }
 
-    // Reachability: can this garrison plausibly be taken at all?
-    const attack = from.count * 0.8;
-    score = attack > to.count ? 2.2 : 0.3 - (to.count - attack) / 12;
+    // What an attack is worth now: the surge, plus whatever is already on its
+    // way. A single trail no longer takes a defended node -- its trickle only
+    // matches the defender's production -- so the bot has to pile on, exactly
+    // as a player has to.
+    const inbound = s.packets.reduce(
+      (acc, p) => (p.to === to.id && p.owner === this.player ? acc + p.amount * UNITS[p.unit].power : acc),
+      0,
+    );
+    const feeding = s.trails.filter((t) => t.to === to.id && t.owner === this.player).length;
+    const attack = from.count * LINK_SURGE * UNITS[KINDS[from.kind].unit].power + inbound;
+    score = attack > to.count ? 2.4 : 0.2 - (to.count - attack) / 14;
+    // Concentration is the whole answer to a defended node, so reward joining
+    // an assault already under way -- but not past the point of overkill.
+    if (feeding > 0 && feeding < 3) score += 1.6;
 
     // Specials are worth more than plain nests: they are the map's variety.
     if (to.kind === 'den') score += 1.1;
@@ -205,7 +219,11 @@ export class Bot {
     return value;
   }
 
-  /** Drop a trail that is feeding a node already lost or already full. */
+  /**
+   * Retire a trail that has stopped earning its slot. This is also how the bot
+   * attacks repeatedly: a spent source is unhooked, refills, and the next link
+   * fires a fresh surge. Holding a drained trail open forever only trickles.
+   */
   private pruneOptions(s: GameState): Option[] {
     const out: Option[] = [];
     for (const t of s.trails) {
@@ -214,8 +232,10 @@ export class Bot {
       const from = s.nodes[t.from];
       if (!to || !from) continue;
       let score = 0;
-      if (to.owner === this.player && to.count >= KINDS[to.kind].cap * 1.4) score = 1.2;
-      if (from.count < 1.5) score = Math.max(score, 0.7);
+      // Feeding a node that is already overflowing wastes the whole output.
+      if (to.owner === this.player && to.count >= KINDS[to.kind].cap * 1.2) score = 1.4;
+      // A spent source: free the slot so it can surge again once it refills.
+      if (from.count < KINDS[from.kind].cap * 0.3) score = Math.max(score, 1.1);
       if (score > 0) out.push({ cmd: { t: 'unlink', p: this.player, trail: t.id }, score });
     }
 

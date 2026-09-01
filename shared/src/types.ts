@@ -21,8 +21,6 @@ export interface KindSpec {
   growth: number;
   /** Growth stops here. Deliveries may still stack above it. */
   cap: number;
-  /** Units per second each outgoing trail pulls out of the node. */
-  drain: number;
   radius: number;
 }
 
@@ -31,14 +29,22 @@ export interface KindSpec {
  * 0.45 s, which is what makes growth readable at a glance. The first numbers
  * grew at 1.1 and the game looked completely static.
  *
- * Drain stays well above growth, or an attack can never overcome a defender's
- * regrowth. These three were picked by sweeping the pair against bot matches:
- * this set ends every match, median 174 s, none dragging past 350 s.
+ * There is deliberately no separate drain figure. A running trail exports
+ * exactly what the node produces, so holding a trail open never empties the
+ * node that owns it: its number only falls when somebody attacks it, or when
+ * its supply is cut and there is no production left to export.
+ *
+ * An earlier version pulled several times faster than a node grew, and every
+ * node a player touched drained itself to zero. Watching your own nest bleed
+ * out with no enemy in sight reads as a broken game, and it was.
+ *
+ * Rerun `node tools/balance.mjs` after changing any rule -- these numbers only
+ * hold for the rules they were measured against.
  */
 export const KINDS: Record<NodeKind, KindSpec> = {
-  nest: { unit: 'worker', growth: 2.2, cap: 30, drain: 8, radius: 30 },
-  den: { unit: 'beetle', growth: 0.7, cap: 12, drain: 1.7, radius: 27 },
-  hive: { unit: 'wasp', growth: 0.5, cap: 8, drain: 1.3, radius: 25 },
+  nest: { unit: 'worker', growth: 2.6, cap: 24, radius: 30 },
+  den: { unit: 'beetle', growth: 0.75, cap: 10, radius: 27 },
+  hive: { unit: 'wasp', growth: 0.6, cap: 7, radius: 25 },
 };
 
 export interface UnitSpec {
@@ -70,11 +76,57 @@ export const CHEW_PER_UNIT = 0.22;
 /** Cap so a monstrous artery stays cuttable within one engagement. */
 export const CHEW_MAX = 9.0;
 
-/** A trail emits one packet per this many seconds; packets are ant columns. */
-export const PACKET_INTERVAL = 0.25;
+/**
+ * A trail emits one column per this many seconds. Longer than it looks like it
+ * should be, on purpose: at a quarter second the columns were half an ant each,
+ * and a node sitting at zero changed hands several times a second. Fewer,
+ * heavier columns are both calmer to watch and far less twitchy to own.
+ */
+export const PACKET_INTERVAL = 0.55;
+
+/**
+ * A freshly taken node starts with at least this much, even if the column that
+ * took it barely survived. Without a foothold the next straggler from either
+ * side flips it straight back, and contested nodes flicker instead of being
+ * fought over.
+ */
+export const CAPTURE_FOOTHOLD = 1.5;
 
 /** Trails a single player may hold at once. Keeps the board readable. */
 export const MAX_TRAILS_PER_PLAYER = 8;
+
+/**
+ * Matches are timed, and that is a rule rather than a safety net. Cutting
+ * supply is deliberately an answer to a stronger opponent, so this game does
+ * not snowball into a wipe the way the genre usually does -- somebody can
+ * almost always hold a corner. Whoever holds more of the board when the clock
+ * runs out has won it: most nodes, then most ants.
+ */
+export const MATCH_LIMIT_TICKS = TICK_HZ * 180;
+
+/**
+ * A running trail carries this share of what its node produces. Deliberately
+ * below 1: at exactly 1 an attacking trickle matched the defender's regrowth
+ * exactly, so contested nodes sat pinned at zero and changed hands on every
+ * single column -- two hundred captures a match, and no progress for anyone.
+ *
+ * Below 1 a node holding trails open still creeps upward, so nothing drains
+ * itself, and taking a defended node needs more than one trail pointed at it.
+ */
+export const EXPORT_RATIO = 0.7;
+
+/**
+ * Opening a trail sends this share of the garrison at once. This surge is the
+ * attack: the steady trickle afterwards is only the node's production, so
+ * taking anything defended means committing a stack, not waiting.
+ */
+export const LINK_SURGE = 0.6;
+
+/**
+ * A node will not surge again this soon, or a player could tap a trail off and
+ * on to pour out the whole garrison in a second.
+ */
+export const SURGE_COOLDOWN = TICK_HZ * 5;
 
 /**
  * Ground trails are paths dug across the map, so they have a reach. Air routes
@@ -93,6 +145,8 @@ export interface GameNode {
   kind: NodeKind;
   owner: number;
   count: number;
+  /** Tick of the last outgoing surge, so surges cannot be spammed. */
+  surgeAt: number;
 }
 
 export interface Trail {

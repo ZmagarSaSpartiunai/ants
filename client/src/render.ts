@@ -22,12 +22,13 @@ export interface DragPreview {
 }
 
 export interface Effect {
-  kind: 'capture' | 'snap' | 'clash';
+  kind: 'capture' | 'snap' | 'clash' | 'float';
   x: number;
   y: number;
   color: string;
   life: number;
   max: number;
+  text?: string;
 }
 
 /**
@@ -77,6 +78,15 @@ export class Renderer {
   addEffect(kind: Effect['kind'], x: number, y: number, color: string): void {
     const max = kind === 'capture' ? 0.7 : kind === 'snap' ? 0.9 : 0.5;
     this.effects.push({ kind, x, y, color, life: max, max });
+  }
+
+  /**
+   * The number on a node moves for two different reasons -- it grows on its
+   * own, and it jumps when a column lands. Without saying which, players read
+   * the whole board as arbitrary.
+   */
+  addFloat(x: number, y: number, text: string, color: string): void {
+    this.effects.push({ kind: 'float', x, y, color, life: 1.1, max: 1.1, text });
   }
 
   draw(
@@ -495,6 +505,21 @@ export class Renderer {
       }
       const k = e.life / e.max;
       ctx.save();
+      if (e.kind === 'float') {
+        const rise = (1 - k) * 34;
+        ctx.globalAlpha = Math.min(1, k * 2.2);
+        ctx.translate(e.x, e.y - 34 - rise);
+        ctx.font = '700 21px "Segoe UI", Roboto, system-ui, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = 'rgba(12,10,8,0.9)';
+        ctx.strokeText(e.text ?? '', 0, 0);
+        ctx.fillStyle = e.color;
+        ctx.fillText(e.text ?? '', 0, 0);
+        ctx.restore();
+        continue;
+      }
       ctx.translate(e.x, e.y);
       if (e.kind === 'capture') {
         ctx.strokeStyle = alpha(e.color, k * 0.9);

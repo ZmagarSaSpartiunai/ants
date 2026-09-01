@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Bot } from './bot.js';
-import { applyCommand, createGame, distance, step, trailById } from './sim.js';
-import { GameNode, GameState, KINDS, LINK_RANGE, NEUTRAL, TICK_HZ } from './types.js';
+import { applyCommand, blockedBy, canLink, createGame, distance, step, trailById } from './sim.js';
+import { GameNode, GameState, KINDS, LINK_RANGE, MATCH_LIMIT_TICKS, NEUTRAL, TICK_HZ } from './types.js';
 
 function run(s: GameState, seconds: number, bots: Bot[] = []): void {
   for (let i = 0; i < seconds * TICK_HZ; i++) {
@@ -78,10 +78,13 @@ test('cutting the chain freezes everything downstream', () => {
   assert.equal(s.supplied[onward.id], false, 'cutting the first link must starve the chain');
 
   const starved = onward.count;
-  const control = s.nodes[s.players[1].home].count;
-  run(s, 10);
+  // The control has to have room left to grow into, or hitting the cap would
+  // look exactly like being starved.
+  const control = s.nodes[s.players[1].home];
+  control.count = 2;
+  run(s, 5);
   assert.equal(onward.count, starved, `an unsupplied node kept growing: ${starved} -> ${onward.count}`);
-  assert.ok(s.nodes[s.players[1].home].count > control, 'a supplied home must keep growing');
+  assert.ok(control.count > 2, 'a supplied home must keep growing');
 });
 
 test('a beetle column walks through a worker column', () => {
@@ -173,5 +176,69 @@ test('a bot match lasts long enough to be a match', () => {
   const avg = lengths.reduce((a, b) => a + b, 0) / lengths.length;
   console.log(`  duel length: ${lengths.map((l) => l.toFixed(0)).join('s, ')}s (avg ${avg.toFixed(0)}s)`);
   assert.ok(avg > 45, `matches end too fast to feel like a game: ${avg.toFixed(0)}s`);
-  assert.ok(avg < 420, `matches drag on: ${avg.toFixed(0)}s`);
+  assert.ok(avg <= 180, `a match cannot outlast its own clock: ${avg.toFixed(0)}s`);
+});
+
+test('a node standing in the way blocks a ground trail but not a flight', () => {
+  const s = createGame(8821, 2);
+  const a = s.nodes[s.players[0].home];
+  // Find a genuine case: two nodes with a third sitting on the line between.
+  let pair: [GameNode, GameNode] | null = null;
+  for (const b of s.nodes) {
+    if (b.id === a.id) continue;
+    if (distance(a, b) > LINK_RANGE) continue;
+    if (blockedBy(s, a.id, b.id)) {
+      pair = [a, b];
+      break;
+    }
+  }
+  assert.ok(pair, 'the map should contain at least one blocked line');
+  const [from, to] = pair!;
+  assert.equal(canLink(s, 0, from.id, to.id), false, 'ants must walk through the node in the way');
+
+  // The same line from a hive is fine: wasps fly over whatever is below.
+  from.kind = 'hive';
+  assert.ok(canLink(s, 0, from.id, to.id), 'a flight ignores what stands on the ground');
+});
+
+test('columns fight wherever they meet, not only in the same corridor', () => {
+  const s = createGame(4711, 2);
+  const a = s.nodes[0];
+  const b = s.nodes[1];
+  const c = s.nodes[2];
+  const d = s.nodes[3];
+  // Two crossing lanes: A->B and C->D, owned by different players, arranged so
+  // the two columns are on top of each other right now.
+  a.x = 100; a.y = 100; b.x = 500; b.y = 500;
+  c.x = 500; c.y = 100; d.x = 100; d.y = 500;
+  s.packets.push({ owner: 0, unit: 'worker', amount: 6, from: a.id, to: b.id, pos: 0.5, air: false, dead: false });
+  s.packets.push({ owner: 1, unit: 'worker', amount: 4, from: c.id, to: d.id, pos: 0.5, air: false, dead: false });
+  step(s);
+
+  const left = s.packets.filter((p) => p.unit === 'worker');
+  assert.equal(left.length, 1, 'the weaker crossing column must die');
+  assert.equal(left[0].owner, 0);
+  assert.ok(Math.abs(left[0].amount - 2) < 1e-9, `survivor should be 6-4=2, was ${left[0].amount}`);
+});
+
+test('wasps fly over a fight instead of joining it', () => {
+  const s = createGame(4711, 2);
+  const a = s.nodes[0];
+  const b = s.nodes[1];
+  a.x = 100; a.y = 100; b.x = 500; b.y = 500;
+  s.packets.push({ owner: 0, unit: 'wasp', amount: 1, from: a.id, to: b.id, pos: 0.5, air: true, dead: false });
+  s.packets.push({ owner: 1, unit: 'worker', amount: 40, from: b.id, to: a.id, pos: 0.5, air: false, dead: false });
+  step(s);
+  assert.ok(s.packets.some((p) => p.unit === 'wasp'), 'an air column is untouchable in the open');
+});
+
+test('a match that nobody can win is decided on the board', () => {
+  const s = createGame(31, 2);
+  // Give player 0 a clear lead and let the clock run out.
+  s.nodes[2].owner = 0;
+  s.nodes[3].owner = 0;
+  s.tick = MATCH_LIMIT_TICKS - 1;
+  step(s);
+  assert.ok(s.over, 'the clock must end the match');
+  assert.equal(s.winner, 0, 'the side holding more of the board wins on time');
 });
