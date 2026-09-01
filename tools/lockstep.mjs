@@ -8,6 +8,7 @@
 //
 //   node tools/lockstep.mjs                        # against a local server
 //   ANTS_URL=ws://127.0.0.1:18787/ws node tools/lockstep.mjs
+//   ANTS_URL=wss://host/ws ANTS_COOKIE='ants_gate=...' node tools/lockstep.mjs
 //
 // Requires `npm run build` first: it imports the built simulation.
 
@@ -18,6 +19,8 @@ const require = createRequire(import.meta.url);
 const WebSocket = require('ws');
 
 const URL = process.env.ANTS_URL ?? 'ws://127.0.0.1:8787/ws';
+// Needed when the deployment sits behind the development password gate.
+const COOKIE = process.env.ANTS_COOKIE ?? '';
 const SECONDS = Number(process.env.ANTS_SECONDS ?? 20);
 
 /** Everything that must agree, rounded so float noise is not mistaken for drift. */
@@ -39,7 +42,7 @@ function fingerprint(s) {
 class Client {
   constructor(tag) {
     this.tag = tag;
-    this.ws = new WebSocket(URL);
+    this.ws = new WebSocket(URL, COOKIE ? { headers: { cookie: COOKIE } } : undefined);
     this.state = null;
     this.you = -1;
     this.code = '';
