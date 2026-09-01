@@ -513,7 +513,34 @@ test('a garrison stops at its cap and passes the rest onward', () => {
   const before = hub.count;
   step(s);
   assert.equal(hub.count, before, 'a full garrison must not go past its cap');
-  assert.ok(hub.carry > 30, `the surplus must be waiting to move on, was ${hub.carry}`);
+  assert.ok(hub.carry.worker > 30, `the surplus must be waiting to move on, was ${hub.carry.worker}`);
+});
+
+test('a node passes foreign units through instead of turning them into its own', () => {
+  const s = createGame(4242, 2);
+  const den = s.nodes.find((n) => n.kind === 'den')!;
+  den.owner = 0;
+  den.count = KINDS.den.cap;
+  s.players[0].home = den.id;
+  // canLink checks ownership, so the den has to be ours before asking.
+  const onward = s.nodes.find((n) => n.id !== den.id && canLink(s, 0, den.id, n.id))!;
+  assert.ok(onward, 'the den needs somewhere to forward to');
+  onward.owner = 0;
+  onward.count = 0;
+  assert.ok(applyCommand(s, { t: 'link', p: 0, from: den.id, to: onward.id }));
+
+  // Workers arrive at a full beetle den. They must come out the far side still
+  // workers -- a den makes beetles, it does not convert what walks through it.
+  for (let i = 0; i < 12; i++) {
+    s.packets.push({ owner: 0, unit: 'worker', amount: 1, from: onward.id, to: den.id, pos: 0.999, air: false, dead: false });
+  }
+  run(s, 4);
+  const leaving = s.packets.filter((p) => p.from === den.id);
+  assert.ok(leaving.length > 0, 'something must be moving on');
+  assert.ok(
+    leaving.some((p) => p.unit === 'worker'),
+    `the workers must still be workers, got ${[...new Set(leaving.map((p) => p.unit))].join(',')}`,
+  );
 });
 
 test('beetles keep pace with the ants, wasps fly half again as fast', () => {

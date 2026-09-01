@@ -175,14 +175,27 @@ export interface GameNode {
    * Arrivals that would have pushed the garrison past its cap. A full node
    * passes them straight on down its own trails instead of wasting them, which
    * is what makes a chain of nests worth building.
+   *
+   * Counted per kind of unit, because passing through is transit and nothing
+   * else: a worker that walks through a beetle den comes out the far side a
+   * worker. A node only ever *makes* its own kind.
    */
-  carry: number;
+  carry: UnitCount;
+}
+
+/** A tally of units by kind, used for anything in transit. */
+export type UnitCount = Record<UnitType, number>;
+
+export function noUnits(): UnitCount {
+  return { worker: 0, beetle: 0, wasp: 0 };
 }
 
 export interface Trail {
   id: number;
-  /** Fractional production waiting to become a whole ant. */
+  /** Fractional production waiting to become a whole ant of the node's kind. */
   pending: number;
+  /** Units passing through this trail from elsewhere, keeping their own kind. */
+  transit: UnitCount;
   owner: number;
   from: number;
   to: number;
