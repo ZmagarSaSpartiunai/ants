@@ -1,4 +1,5 @@
 import {
+  blockedBy,
   canLink,
   FIELD_H,
   FIELD_W,
@@ -113,6 +114,7 @@ export class Renderer {
     ctx.clip();
 
     this.drawGround();
+    if (drag) this.drawBlocker(s, you, drag);
     for (const t of s.trails) this.drawTrail(s, t);
     for (const p of pending) this.drawPending(s, p.from, p.to);
     if (drag) this.drawDrag(s, drag);
@@ -143,6 +145,46 @@ export class Renderer {
       ctx.fillRect(0, 0, FIELD_W, FIELD_H);
       ctx.globalAlpha = 1;
     }
+  }
+
+  /**
+   * When a drag is hovering somewhere it cannot reach, say why on the board:
+   * the line stops at whatever is standing in it. A dimmed target only says
+   * "no", and a rule a player has to infer from refusals is never learned.
+   */
+  private drawBlocker(s: GameState, you: number, drag: DragPreview): void {
+    const from = s.nodes[drag.fromNode];
+    if (!from || from.kind === 'hive') return;
+    // Whatever the finger is currently over, generously.
+    let over: GameNode | undefined;
+    let best = Infinity;
+    for (const n of s.nodes) {
+      const d = Math.hypot(n.x - drag.x, n.y - drag.y);
+      if (d < KINDS[n.kind].radius + 22 && d < best) {
+        over = n;
+        best = d;
+      }
+    }
+    if (!over || over.id === from.id || canLink(s, you, from.id, over.id)) return;
+    const blocker = blockedBy(s, from.id, over.id);
+    if (!blocker) return;
+
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.setLineDash([5, 6]);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(224,90,61,0.5)';
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(blocker.x, blocker.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(224,90,61,0.9)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(blocker.x, blocker.y, KINDS[blocker.kind].radius + 7, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
   }
 
   private drawTrail(s: GameState, t: Trail): void {

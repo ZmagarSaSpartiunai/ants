@@ -97,6 +97,39 @@ export function distance(a: GameNode, b: GameNode): number {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
+/** Distance from a point to a segment: used to test what a trail runs over. */
+function pointToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return Math.sqrt((px - ax) * (px - ax) + (py - ay) * (py - ay));
+  let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  const qx = ax + dx * t;
+  const qy = ay + dy * t;
+
+  return Math.sqrt((px - qx) * (px - qx) + (py - qy) * (py - qy));
+}
+
+/**
+ * A node standing between two others blocks the ground between them. Ants walk;
+ * they cannot step over a nest that is in the way, so a chain has to go through
+ * it. This is also what gives a supply line somewhere worth cutting.
+ *
+ * Distance is deliberately not a rule -- any two nodes with a clear line may be
+ * joined however far apart they are.
+ */
+export function blockedBy(s: GameState, fromId: number, toId: number): GameNode | undefined {
+  const a = s.nodes[fromId];
+  const b = s.nodes[toId];
+  for (const n of s.nodes) {
+    if (n.id === fromId || n.id === toId) continue;
+    if (pointToSegment(n.x, n.y, a.x, a.y, b.x, b.y) < KINDS[n.kind].radius + 8) return n;
+  }
+
+  return undefined;
+}
+
 export function canLink(s: GameState, p: number, fromId: number, toId: number): boolean {
   if (s.over) return false;
   const player = s.players[p];
@@ -108,10 +141,11 @@ export function canLink(s: GameState, p: number, fromId: number, toId: number): 
   if (!from || !to || from.id === to.id) return false;
   if (from.owner !== p) return false;
   if (s.trails.some((t) => t.owner === p && t.from === fromId && t.to === toId)) return false;
-  // The only limit on building. Any node may be linked to any other, at any
-  // distance, over anything in between -- what runs out is the source node's
-  // own capacity to feed trails.
+  // How many trails a node can feed is the limit that runs out. Distance is
+  // not a limit at all.
   if (outgoing(s, fromId) >= KINDS[from.kind].links) return false;
+  // Wasps fly over whatever is on the ground; ants have to go through it.
+  if (from.kind !== 'hive' && blockedBy(s, fromId, toId)) return false;
 
   return true;
 }

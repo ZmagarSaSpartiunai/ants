@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { Bot } from './bot.js';
-import { applyCommand, canLink, createGame, distance, linksFree, step, trailById } from './sim.js';
+import { applyCommand, blockedBy, canLink, createGame, distance, linksFree, step, trailById } from './sim.js';
 import { GameNode, GameState, KINDS, MATCH_LIMIT_TICKS, NEUTRAL, TICK_HZ } from './types.js';
 
 function run(s: GameState, seconds: number, bots: Bot[] = []): void {
@@ -205,13 +205,23 @@ test('a node feeds only as many trails as its kind allows', () => {
   assert.ok(applyCommand(s, { t: 'link', p: 0, from: home.id, to: targets[budget].id }));
 });
 
-test('distance and anything in the way are no longer rules', () => {
+test('distance is not a rule, but a node in the way is', () => {
   const s = createGame(8821, 2);
   const home = s.nodes[s.players[0].home];
   const dist = (n: GameNode) => distance(home, n);
-  const farthest = s.nodes.filter((n) => n.id !== home.id).sort((a, b) => dist(b) - dist(a))[0];
-  assert.ok(dist(farthest) > 700, 'the test needs a genuinely distant node');
-  assert.ok(canLink(s, 0, home.id, farthest.id), 'any node may be linked to any other');
+  const clearAndFar = s.nodes
+    .filter((n) => n.id !== home.id && !blockedBy(s, home.id, n.id))
+    .sort((a, b) => dist(b) - dist(a))[0];
+  assert.ok(dist(clearAndFar) > 600, 'the test needs a genuinely distant node');
+  assert.ok(canLink(s, 0, home.id, clearAndFar.id), 'a clear line may be any length');
+
+  const blocked = s.nodes.find((n) => n.id !== home.id && blockedBy(s, home.id, n.id));
+  assert.ok(blocked, 'the map should contain at least one obstructed line');
+  assert.equal(canLink(s, 0, home.id, blocked!.id), false, 'ants cannot step over a node');
+
+  // A hive flies, so the same obstructed line is fine from one.
+  home.kind = 'hive';
+  assert.ok(canLink(s, 0, home.id, blocked!.id), 'wasps ignore what is on the ground');
 });
 
 test('columns fight wherever they meet, not only in the same corridor', () => {

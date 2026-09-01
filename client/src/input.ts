@@ -1,4 +1,4 @@
-import { canLink, Command, GameState, KINDS, linksFree, NEUTRAL } from '@ants/shared';
+import { blockedBy, canLink, Command, GameState, KINDS, linksFree, NEUTRAL } from '@ants/shared';
 import { DragPreview, Renderer } from './render.js';
 
 /** Fingers are wide: node hits get a generous margin, trails a fat corridor. */
@@ -122,6 +122,8 @@ export class Input {
       this.host.hint('hintOwn');
     } else if (linksFree(s, drag.fromNode) === 0) {
       this.host.hint('hintNodeFull');
+    } else if (blockedBy(s, drag.fromNode, target.id)) {
+      this.host.hint('hintBlocked');
     } else {
       this.host.hint('hintLink');
     }

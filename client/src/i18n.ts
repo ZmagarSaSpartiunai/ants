@@ -47,6 +47,7 @@ const EN: Dict = {
   antsLabel: 'Ants',
   byTime: 'Time is up — most of the board wins',
   hintNodeFull: 'This node already runs all its trails',
+  hintBlocked: 'A node is in the way — chain the trail through it',
 };
 
 const UK: Dict = {
@@ -94,6 +95,7 @@ const UK: Dict = {
   antsLabel: 'Мурахи',
   byTime: 'Час вийшов — перемагає той, хто тримає більше',
   hintNodeFull: 'Цей вузол уже веде всі свої стежки',
+  hintBlocked: 'На шляху вузол — веди стежку через нього',
 };
 
 const PL: Dict = {
@@ -119,6 +121,7 @@ const PL: Dict = {
   antsLabel: 'Mrówki',
   byTime: 'Koniec czasu — wygrywa większa część planszy',
   hintNodeFull: 'Ten węzeł prowadzi już wszystkie szlaki',
+  hintBlocked: 'Na drodze jest węzeł — poprowadź szlak przez niego',
 };
 
 const DE: Dict = {
@@ -144,6 +147,7 @@ const DE: Dict = {
   antsLabel: 'Ameisen',
   byTime: 'Zeit ist um — die größere Hälfte gewinnt',
   hintNodeFull: 'Dieser Knoten führt schon alle seine Pfade',
+  hintBlocked: 'Ein Knoten ist im Weg — führe den Pfad durch ihn',
 };
 
 const ES: Dict = {
@@ -169,6 +173,7 @@ const ES: Dict = {
   antsLabel: 'Hormigas',
   byTime: 'Se acabó el tiempo — gana quien tiene más',
   hintNodeFull: 'Este nodo ya lleva todos sus senderos',
+  hintBlocked: 'Hay un nodo en medio — encadena el sendero por él',
 };
 
 const PT: Dict = {
@@ -194,6 +199,7 @@ const PT: Dict = {
   antsLabel: 'Formigas',
   byTime: 'Tempo esgotado — ganha quem tem mais',
   hintNodeFull: 'Este nó já leva todos os seus trilhos',
+  hintBlocked: 'Há um nó no caminho — encadeia o trilho por ele',
 };
 
 export const LANGS: Record<string, { name: string; dict: Dict }> = {

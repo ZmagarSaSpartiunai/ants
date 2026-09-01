@@ -47,12 +47,12 @@ export interface KindSpec {
  *
  * Rerun `node tools/balance.mjs` after changing any rule -- these numbers only
  * hold for the rules they were measured against. Dropping the reach and
- * obstacle rules in favour of a per-node trail budget changed them completely:
- * matches went from routinely running out the clock with 135 captures apiece
- * to finishing on their own in about 80 seconds with 22.
+ * obstacle rule and the shared trail budget changed them completely: matches
+ * went from routinely running out the clock to finishing on their own in about
+ * a hundred seconds, none reaching the limit.
  */
 export const KINDS: Record<NodeKind, KindSpec> = {
-  nest: { unit: 'worker', growth: 2.6, cap: 30, links: 3, radius: 30 },
+  nest: { unit: 'worker', growth: 3.2, cap: 24, links: 3, radius: 30 },
   den: { unit: 'beetle', growth: 0.75, cap: 10, links: 2, radius: 27 },
   hive: { unit: 'wasp', growth: 0.6, cap: 7, links: 1, radius: 25 },
 };
