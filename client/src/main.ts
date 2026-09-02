@@ -183,14 +183,23 @@ export class App {
    * unbounded and then replay as one lurch on return.
    */
   private pump(dt: number): void {
+    // Mode is asked first, and `demo` only after it. The other way round, a
+    // demo flag left standing from the menu backdrop took over a real online
+    // match: the local bots drove the board, the server's ticks were never
+    // applied, and both players sat watching a game they could not touch.
+    if (this.mode === 'online') {
+      if (this.screen !== 'game' && this.screen !== 'over') return;
+      this.advanceOnline(dt);
+
+      return;
+    }
     if (this.demo) {
       this.advanceSolo(dt);
 
       return;
     }
     if (this.screen !== 'game' && this.screen !== 'over') return;
-    if (this.mode === 'solo') this.advanceSolo(dt);
-    else this.advanceOnline(dt);
+    this.advanceSolo(dt);
     // Judged here rather than in the draw loop: a level has to be able to end
     // whether or not anybody is currently looking at it.
     this.checkGoal();
@@ -375,23 +384,38 @@ export class App {
     this.say(this.goalText());
   }
 
-  private begin(seed: number, players: number, level: BotLevel): void {
+  /**
+   * Everything a match has to start from, whoever is driving it.
+   *
+   * It exists because the online path used to set only the half of this that
+   * somebody remembered at the time, and the half it forgot included `demo`.
+   * A match is a match: one place clears the board, and both ways in go
+   * through it.
+   *
+   * `level` is deliberately not touched here -- who set it is the caller's
+   * business, and startLevel sets it before calling.
+   */
+  private resetMatch(): void {
     this.demo = false;
-    this.mode = 'solo';
-    this.screen = 'game';
-    this.youId = 0;
+    this.bots = [];
     this.queue = [];
     this.pending = [];
     this.won = false;
     this.startedAt = 0;
+    this.acc = 0;
+    this.screen = 'game';
+    this.input.reset();
+    this.hideOverlay();
+  }
+
+  private begin(seed: number, players: number, level: BotLevel): void {
+    this.resetMatch();
+    this.mode = 'solo';
+    this.youId = 0;
     this.state = createGame(seed, players);
-    this.bots = [];
     for (let i = 1; i < players; i++) {
       this.bots.push(new Bot(i, level, (seed + i * 7919) >>> 0));
     }
-    this.acc = 0;
-    this.input.reset();
-    this.hideOverlay();
   }
 
   /** The level's goal in one line, for the hint and the end screen. */
@@ -459,14 +483,12 @@ export class App {
       this.screen = 'lobby';
       this.render();
     } else if (msg.t === 'start') {
+      this.resetMatch();
       this.mode = 'online';
+      // A room has no campaign goal; only the server decides when it is over.
+      this.level = null;
       this.state = msg.state;
       this.youId = msg.you;
-      this.queue = [];
-      this.acc = 0;
-      this.screen = 'game';
-      this.input.reset();
-      this.hideOverlay();
       this.say(t('hintChew'));
     } else if (msg.t === 'cmds') {
       this.queue.push({ tick: msg.tick, cmds: msg.cmds });

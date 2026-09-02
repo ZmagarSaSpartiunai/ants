@@ -36,6 +36,8 @@ export class Room {
   private seed = 0;
   private readonly created = Date.now();
   started = false;
+  /** Set once the match is over: the room is done and takes no more input. */
+  finished = false;
 
   constructor(
     readonly code: string,
@@ -92,7 +94,7 @@ export class Room {
     }
     if (this.empty) {
       this.stop();
-      this.onEmpty(this);
+      if (!this.finished) this.onEmpty(this);
 
       return;
     }
@@ -150,7 +152,9 @@ export class Room {
   /** Commands are never trusted: the slot comes from the socket, not the message. */
   submit(ws: WebSocket, cmd: Command): void {
     const slot = this.slotOf(ws);
-    if (slot === null || !this.started) return;
+    // Nothing drains the queue once the match is over, so anything accepted
+    // after that would simply grow in memory until the socket closed.
+    if (slot === null || !this.started || this.finished) return;
     if (cmd.t !== 'link' && cmd.t !== 'unlink' && cmd.t !== 'chew') return;
     this.queued.push({ ...cmd, p: slot } as Command);
   }
@@ -182,6 +186,12 @@ export class Room {
       this.broadcast({ t: 'over', winner: s.winner });
       this.save();
       this.stop();
+      // And let it go. A finished room used to sit in the table for good: its
+      // seats still held sockets, so it never counted as empty, and `stale`
+      // only ever looks at lobbies that never started. Enough finished matches
+      // and no new room could be created at all.
+      this.finished = true;
+      this.onEmpty(this);
     }
   }
 
