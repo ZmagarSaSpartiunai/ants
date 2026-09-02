@@ -62,15 +62,9 @@ export function buildMeadow(): HTMLCanvasElement {
   blades(ctx);
   clutter(ctx);
 
-  // A vignette pulls the eye to the middle of the board.
-  const vig = ctx.createRadialGradient(
-    FIELD_W / 2, FIELD_H / 2, FIELD_H * 0.32,
-    FIELD_W / 2, FIELD_H / 2, FIELD_W * 0.72,
-  );
-  vig.addColorStop(0, 'rgba(0,0,0,0)');
-  vig.addColorStop(1, 'rgba(0,0,0,0.34)');
-  ctx.fillStyle = vig;
-  ctx.fillRect(0, 0, FIELD_W, FIELD_H);
+  // The vignette used to be baked in here. It lives in the scenery layer now,
+  // on top of the trees, so that the growth around the edge falls into the
+  // same shadow as the ground it stands on.
 
   return c;
 }
@@ -114,6 +108,19 @@ function clutter(ctx: CanvasRenderingContext2D): void {
     ctx.fill();
   }
 
+  // Wildflowers, scattered thinly over the whole meadow. Two or three pixels
+  // across on purpose: enough to warm the green up, too small to be mistaken
+  // for anything that belongs to a player.
+  for (let i = 0; i < 150; i++) {
+    const x = Math.random() * FIELD_W;
+    const y = Math.random() * FIELD_H;
+    const r = Math.random();
+    ctx.fillStyle = r < 0.5 ? 'rgba(236,232,214,0.7)' : r < 0.82 ? 'rgba(228,196,110,0.65)' : 'rgba(196,168,220,0.6)';
+    ctx.beginPath();
+    ctx.arc(x, y, 1 + Math.random() * 0.9, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   // A few fallen leaves.
   for (let i = 0; i < 14; i++) {
     const x = Math.random() * FIELD_W;
@@ -139,4 +146,50 @@ function clutter(ctx: CanvasRenderingContext2D): void {
     ctx.stroke();
     ctx.restore();
   }
+}
+
+/**
+ * A strip of soft cloud shadow, drawn once and then slid across the board.
+ *
+ * A board that never changes brightness looks like a printed picture. Moving
+ * the light is the cheapest way to make it look like a place: one blit per
+ * frame, no per-pixel work, and it is deliberately faint -- the moment a
+ * shadow is dark enough to change how a garrison reads, it is a bug and not a
+ * mood.
+ */
+export const DAPPLE_W = FIELD_W;
+export const DAPPLE_H = FIELD_H;
+
+export function buildDapple(): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = DAPPLE_W;
+  c.height = DAPPLE_H;
+  const ctx = c.getContext('2d')!;
+
+  for (let i = 0; i < 11; i++) {
+    const x = Math.random() * DAPPLE_W;
+    const y = Math.random() * DAPPLE_H;
+    const r = 130 + Math.random() * 260;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(10,26,10,0.5)');
+    g.addColorStop(0.55, 'rgba(10,26,10,0.3)');
+    g.addColorStop(1, 'rgba(10,26,10,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(x, y, r, r * (0.5 + Math.random() * 0.4), Math.random() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // The strip is slid horizontally and has to wrap, so the two vertical edges
+  // must match: fade both of them out to nothing.
+  ctx.globalCompositeOperation = 'destination-out';
+  const fade = ctx.createLinearGradient(0, 0, DAPPLE_W, 0);
+  fade.addColorStop(0, 'rgba(0,0,0,1)');
+  fade.addColorStop(0.14, 'rgba(0,0,0,0)');
+  fade.addColorStop(0.86, 'rgba(0,0,0,0)');
+  fade.addColorStop(1, 'rgba(0,0,0,1)');
+  ctx.fillStyle = fade;
+  ctx.fillRect(0, 0, DAPPLE_W, DAPPLE_H);
+
+  return c;
 }

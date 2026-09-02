@@ -16,7 +16,8 @@ import {
   UNITS,
 } from '@ants/shared';
 import { alpha, mix, playerColor, shade, SOIL_LIGHT, SOIL_MID, TILT, tint } from './theme.js';
-import { buildMeadow } from './ground.js';
+import { buildDapple, buildMeadow, DAPPLE_W } from './ground.js';
+import { buildScenery } from './scenery.js';
 import { drawCreature } from './creatures.js';
 import { drawStructure } from './structures.js';
 
@@ -51,6 +52,14 @@ export class Renderer {
   private ox = 0;
   private oy = 0;
   private meadow: HTMLCanvasElement | null = null;
+  /**
+   * The growth around the edge of the board. Unlike the meadow it depends on
+   * where the nodes and the water ended up, so it is rebuilt whenever the map
+   * changes -- and only then: it is a fresh canvas per map, not per frame.
+   */
+  private scenery: HTMLCanvasElement | null = null;
+  private sceneryKey = '';
+  private dapple: HTMLCanvasElement | null = null;
   /**
    * On a tall screen the board is turned a quarter turn so it runs along the
    * long side. Upright, a 3:2 field fills about a quarter of a phone; turned,
@@ -157,6 +166,10 @@ export class Renderer {
     if (!this.meadow) this.meadow = buildMeadow();
     ctx.drawImage(this.meadow, 0, 0);
     for (const river of s.rivers) this.drawRiver(river);
+    // Over the water, so a tree on the bank stands in front of it, and under
+    // everything that belongs to the game.
+    ctx.drawImage(this.sceneryFor(s), 0, 0);
+    this.drawDapple();
 
     if (drag) this.drawBlocker(s, you, drag);
     this.drawScars(s);
@@ -170,6 +183,37 @@ export class Renderer {
     this.drawEffects(dt);
 
     ctx.restore();
+  }
+
+  /**
+   * Cloud shadow drifting over the meadow. It goes on above the scenery and
+   * below anything the player has to read, so the board breathes without a
+   * garrison plate ever dimming.
+   */
+  private drawDapple(): void {
+    if (!this.dapple) this.dapple = buildDapple();
+    const ctx = this.ctx;
+    // Slow enough that it is felt rather than watched: one pass in ~2 minutes.
+    let x = -((this.time * 10) % DAPPLE_W);
+    ctx.save();
+    ctx.globalAlpha = 0.34;
+    while (x < FIELD_W) {
+      ctx.drawImage(this.dapple, x, 0);
+      x += DAPPLE_W;
+    }
+    ctx.restore();
+  }
+
+  private sceneryFor(s: GameState): HTMLCanvasElement {
+    // Node positions never move within a match, so this key only changes when
+    // a new board is loaded.
+    const key = `${s.nodes.length}:${s.nodes[0]?.x},${s.nodes[0]?.y}:${s.rivers.length}:${s.nodes[s.nodes.length - 1]?.x}:${this.turned}`;
+    if (!this.scenery || key !== this.sceneryKey) {
+      this.scenery = buildScenery(s.nodes, s.rivers, this.turned);
+      this.sceneryKey = key;
+    }
+
+    return this.scenery;
   }
 
   /**
