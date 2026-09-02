@@ -839,7 +839,11 @@ export class App {
     const name = (field?.value ?? '').trim();
     if (name) setPlayerName(name);
 
-    return name || t('you');
+    // Empty stays empty: the server numbers an unnamed seat "#2". Sending the
+    // word "You" instead made everybody who had not typed a name literally
+    // called "You" -- on the other player's screen as well as their own, which
+    // is the one thing a name in a room has to avoid.
+    return name;
   }
 
   private showLobby(): void {
