@@ -46,20 +46,24 @@ export interface KindSpec {
  *
  * Output is what a node sends down its trails, and it never comes out of the
  * garrison. `outBase` is what even an empty node produces; `outPer` is the
- * extra per ant standing in it. A nest at 150 pushes about 7.5 a second, one at
- * 20 about 1.7 -- so stacking a nest up is what makes it dangerous, while the
- * stack itself stays put as the wall an attacker has to break.
+ * extra per ant standing in it.
  *
- * A nest at 30 sends about one and a half ants a second, one at 150 about five.
- * Low on purpose: ants are individuals here, so the rate is the rate you watch
- * them leave at.
+ * `outPer` is deliberately shallow. It used to be twice this, and once a board
+ * settled every node sat at its cap pushing five a second into neighbours that
+ * were also at their cap: the field was solid with ants and none of them
+ * changed a number anywhere. The stack is meant to be dangerous because it is
+ * a wall an attacker has to break, not because it doubles as a firehose.
+ *
+ * At this setting a nest at 30 sends about one a second, one at 150 about
+ * three. Low on purpose: ants are individuals here, so the rate is the rate
+ * you watch them leave at.
  *
  * Rerun `node tools/balance.mjs` after changing any rule -- these numbers only
  * hold for the rules they were measured against.
  */
 /** A nest is the yardstick; the other two are written as multiples of it. */
 const NEST_BASE = 0.6;
-const NEST_PER = 0.03;
+const NEST_PER = 0.015;
 
 /**
  * How often each kind sends somebody out, relative to a nest holding the same
@@ -245,31 +249,12 @@ export interface GameNode {
   kind: NodeKind;
   owner: number;
   count: number;
-  /**
-   * Arrivals that would have pushed the garrison past its cap. A full node
-   * passes them straight on down its own trails instead of wasting them, which
-   * is what makes a chain of nests worth building.
-   *
-   * Counted per kind of unit, because passing through is transit and nothing
-   * else: a worker that walks through a beetle den comes out the far side a
-   * worker. A node only ever *makes* its own kind.
-   */
-  carry: UnitCount;
-}
-
-/** A tally of units by kind, used for anything in transit. */
-export type UnitCount = Record<UnitType, number>;
-
-export function noUnits(): UnitCount {
-  return { worker: 0, beetle: 0, wasp: 0 };
 }
 
 export interface Trail {
   id: number;
   /** Fractional production waiting to become a whole ant of the node's kind. */
   pending: number;
-  /** Units passing through this trail from elsewhere, keeping their own kind. */
-  transit: UnitCount;
   owner: number;
   from: number;
   to: number;
@@ -290,9 +275,27 @@ export interface Packet {
   /** 0..1 along the straight line from -> to. */
   pos: number;
   air: boolean;
+  /**
+   * How many more full towers this unit may walk through before it gives up
+   * and joins whatever garrison it is standing in. See TRANSIT_HOPS.
+   */
+  hops: number;
   /** Set when annihilated this tick; swept after collision resolution. */
   dead: boolean;
 }
+
+/**
+ * A unit that reaches a tower with no room does not stop there -- it carries on
+ * down one of that tower's own trails. This is how many towers it may cross
+ * that way.
+ *
+ * It has to be finite. Without a limit a ring of full nodes passes the same ant
+ * round for ever, and since every node keeps producing on top of that, the
+ * board fills with units that will never change a number anywhere. Three is far
+ * enough to cross your own territory to a front, and short enough that a loop
+ * empties itself.
+ */
+export const TRANSIT_HOPS = 3;
 
 export interface PlayerState {
   id: number;

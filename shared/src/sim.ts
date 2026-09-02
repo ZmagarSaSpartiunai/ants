@@ -14,9 +14,9 @@ import {
   NEUTRAL,
   Packet,
   Point,
+  TRANSIT_HOPS,
   UNIT_SIZE,
   UnitType,
-  noUnits,
   PlayerState,
   TICK_HZ,
   Severed,
@@ -280,7 +280,6 @@ export function applyCommand(s: GameState, cmd: Command): boolean {
       air: from.kind === 'hive',
       chew: 0,
       pending: 0,
-      transit: noUnits(),
     };
     // Start half full so the first ant sets off almost at once: a trail that
     // does nothing for a second reads as a trail that failed.
@@ -476,33 +475,17 @@ function emit(s: GameState): void {
 
   for (const t of s.trails) {
     const from = s.nodes[t.from];
-    const to = s.nodes[t.to];
     const share = outCount.get(t.from) ?? 1;
-    // Overflow only moves on somewhere it can be used. Forwarding it into a
-    // node that is already full let two full nodes pointing at each other
-    // bounce the same ants back and forth for ever.
-    const onward = !(to && to.owner === t.owner && to.count >= KINDS[to.kind].cap);
-
     // Split, not multiplied: output is a property of the node, so a second
     // trail spreads it rather than doubling it.
     t.pending += (outputRate(s, from) * DT) / share;
-    if (onward) {
-      for (const unit of UNIT_KINDS) t.transit[unit] += from.carry[unit] / share;
-    }
-
-    // What the node makes leaves as the node's own kind; what is only passing
-    // through keeps whatever kind it already was.
+    // A node only ever makes its own kind. Anything else moving along this
+    // trail is somebody else's unit passing through, and that is handled where
+    // it arrives, not here.
     send(s, t, KINDS[from.kind].unit, t.pending);
     t.pending %= UNIT_SIZE;
-    for (const unit of UNIT_KINDS) {
-      send(s, t, unit, t.transit[unit]);
-      t.transit[unit] %= UNIT_SIZE;
-    }
   }
-  for (const n of s.nodes) n.carry = noUnits();
 }
-
-const UNIT_KINDS: UnitType[] = ['worker', 'beetle', 'wasp'];
 
 /** Sets whole units walking; the remainder stays behind as a fraction. */
 function send(s: GameState, t: Trail, unit: UnitType, pool: number): void {
@@ -516,6 +499,7 @@ function send(s: GameState, t: Trail, unit: UnitType, pool: number): void {
       to: t.to,
       pos: 0,
       air: t.air,
+      hops: TRANSIT_HOPS,
       dead: false,
     });
   }
@@ -543,17 +527,60 @@ function move(s: GameState, events: SimEvent[]): void {
   }
 }
 
+/**
+ * Send a unit on from a tower that had no room for it.
+ *
+ * Two rules stop this becoming a machine that runs for ever. A unit is never
+ * sent straight back where it came from -- without that, two full nests
+ * pointing at each other bounced the same ants between them and the board
+ * filled with packets that would never do anything again. And it may only cross
+ * so many towers, which closes the same hole for a longer ring of them.
+ *
+ * Where it goes is decided by need: anything that is not ours needs it most,
+ * and after that whichever of our own nodes has the most room. So a column that
+ * walks into a full nest comes out heading for the front rather than for
+ * whichever trail happened to be built first.
+ */
+function forward(s: GameState, p: Packet, node: GameNode): void {
+  if (p.hops <= 0) return;
+  let best: Trail | undefined;
+  let bestNeed = -Infinity;
+  for (const t of s.trails) {
+    if (t.from !== node.id || t.owner !== node.owner) continue;
+    if (t.to === p.from) continue;
+    const to = s.nodes[t.to];
+    const need = to.owner === node.owner ? 1 - to.count / KINDS[to.kind].cap : 2;
+    if (need > bestNeed) {
+      bestNeed = need;
+      best = t;
+    }
+  }
+  if (!best) return;
+
+  p.from = node.id;
+  p.to = best.to;
+  p.pos = 0;
+  p.air = best.air;
+  p.hops--;
+  // It moved this tick already; it simply carries on from the next one.
+  p.dead = false;
+}
+
 function arrive(s: GameState, p: Packet, events: SimEvent[]): void {
   const node = s.nodes[p.to];
   if (node.owner === p.owner) {
     const cap = KINDS[node.kind].cap;
-    const room = Math.max(0, cap - node.count);
-    const taken = Math.min(room, p.amount);
-    node.count += taken;
-    // A full node forwards the rest down its own trails instead of wasting it.
-    // Forwarded units keep their own kind: this is transit, not production.
-    node.carry[p.unit] += p.amount - taken;
-    events.push({ t: 'delta', node: node.id, amount: p.amount, hostile: false, by: p.owner });
+    if (node.count < cap) {
+      node.count = Math.min(cap, node.count + p.amount);
+      events.push({ t: 'delta', node: node.id, amount: p.amount, hostile: false, by: p.owner });
+
+      return;
+    }
+    // No room, so this one does not stop here. Passing through is the whole
+    // point of a chain: without it a tower of your own that happens to be full
+    // is a wall against your own ants, and every column feeding a front dies on
+    // the doorstep of the nest it was supposed to walk through.
+    forward(s, p, node);
 
     return;
   }
@@ -575,7 +602,6 @@ function arrive(s: GameState, p: Packet, events: SimEvent[]): void {
   const survivors = (damage - node.count) / power;
   const cap = KINDS[node.kind].cap;
   node.count = Math.min(cap, Math.max(CAPTURE_FOOTHOLD, survivors));
-  node.carry[p.unit] += Math.max(0, survivors - cap);
   events.push({ t: 'capture', node: node.id, by: p.owner, lost });
   onCapture(s, node, lost, events);
 }

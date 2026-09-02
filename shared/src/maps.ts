@@ -5,7 +5,6 @@ import {
   KINDS,
   NEUTRAL,
   NodeKind,
-  noUnits,
   Point,
   River,
 } from './types.js';
@@ -35,7 +34,7 @@ export function generateMap(seed: number, players: number): MapLayout {
 
   const add = (x: number, y: number, kind: NodeKind, owner: number, count: number): number => {
     const id = nodes.length;
-    nodes.push({ id, x: Math.round(x), y: Math.round(y), kind, owner, count, carry: noUnits() });
+    nodes.push({ id, x: Math.round(x), y: Math.round(y), kind, owner, count });
     return id;
   };
 

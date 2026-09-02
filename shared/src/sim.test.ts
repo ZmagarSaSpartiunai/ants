@@ -22,6 +22,7 @@ import {
   KINDS,
   NEUTRAL,
   SPEED_FROM_STRENGTH,
+  TRANSIT_HOPS,
   TICK_HZ,
   UNITS,
   UNIT_SIZE,
@@ -168,8 +169,8 @@ test('one beetle is worth exactly two workers', () => {
     s.players[1].home = b.id;
     s.trails.length = 0;
     s.packets.length = 0;
-    s.packets.push({ owner: 0, unit: 'beetle', amount: beetles, from: a.id, to: b.id, pos: 0.5, air: false, dead: false });
-    s.packets.push({ owner: 1, unit: 'worker', amount: workers, from: b.id, to: a.id, pos: 0.5, air: false, dead: false });
+    s.packets.push({ owner: 0, unit: 'beetle', amount: beetles, from: a.id, to: b.id, pos: 0.5, air: false, hops: TRANSIT_HOPS, dead: false });
+    s.packets.push({ owner: 1, unit: 'worker', amount: workers, from: b.id, to: a.id, pos: 0.5, air: false, hops: TRANSIT_HOPS, dead: false });
     step(s);
 
     return {
@@ -341,8 +342,8 @@ test('columns fight wherever they meet, not only in the same corridor', () => {
   // the two columns are on top of each other right now.
   a.x = 100; a.y = 100; b.x = 500; b.y = 500;
   c.x = 500; c.y = 100; d.x = 100; d.y = 500;
-  s.packets.push({ owner: 0, unit: 'worker', amount: 6, from: a.id, to: b.id, pos: 0.5, air: false, dead: false });
-  s.packets.push({ owner: 1, unit: 'worker', amount: 4, from: c.id, to: d.id, pos: 0.5, air: false, dead: false });
+  s.packets.push({ owner: 0, unit: 'worker', amount: 6, from: a.id, to: b.id, pos: 0.5, air: false, hops: TRANSIT_HOPS, dead: false });
+  s.packets.push({ owner: 1, unit: 'worker', amount: 4, from: c.id, to: d.id, pos: 0.5, air: false, hops: TRANSIT_HOPS, dead: false });
   step(s);
 
   const left = s.packets.filter((p) => p.unit === 'worker');
@@ -356,8 +357,8 @@ test('wasps fly over a fight instead of joining it', () => {
   const a = s.nodes[0];
   const b = s.nodes[1];
   a.x = 100; a.y = 100; b.x = 500; b.y = 500;
-  s.packets.push({ owner: 0, unit: 'wasp', amount: 1, from: a.id, to: b.id, pos: 0.5, air: true, dead: false });
-  s.packets.push({ owner: 1, unit: 'worker', amount: 40, from: b.id, to: a.id, pos: 0.5, air: false, dead: false });
+  s.packets.push({ owner: 0, unit: 'wasp', amount: 1, from: a.id, to: b.id, pos: 0.5, air: true, hops: TRANSIT_HOPS, dead: false });
+  s.packets.push({ owner: 1, unit: 'worker', amount: 40, from: b.id, to: a.id, pos: 0.5, air: false, hops: TRANSIT_HOPS, dead: false });
   step(s);
   assert.ok(s.packets.some((p) => p.unit === 'wasp'), 'an air column is untouchable in the open');
 });
@@ -479,8 +480,16 @@ test('ants leave one at a time', () => {
 });
 
 test('output rises with the garrison, and splits across trails', () => {
-  /** Ants set off from `from` over ten seconds, with `targets` trails open. */
-  const emitted = (fill: number, targets: number): number => {
+  /**
+   * Units delivered out of `from` over ten seconds, with `targets` trails open.
+   *
+   * Measured at the far end rather than by watching the packet list grow: that
+   * list shrinks whenever a column lands, so counting its ups counted arrivals
+   * as departures and reported a node with two trails as producing twice as
+   * much. Both targets are ours and empty, so everything sent is everything
+   * that shows up, and both of them grow at their own rate in either case.
+   */
+  const delivered = (fill: number, targets: number): number => {
     const s = createGame(4242, 2);
     s.rivers = [];
     const from = s.nodes[0];
@@ -497,6 +506,10 @@ test('output rises with the garrison, and splits across trails', () => {
     }
     from.owner = 0;
     s.players[0].home = from.id;
+    a.owner = 0;
+    b.owner = 0;
+    a.count = 0;
+    b.count = 0;
     const others = s.nodes.slice(3).find((n) => n.id !== from.id)!;
     others.owner = 1;
     s.players[1].home = others.id;
@@ -504,45 +517,76 @@ test('output rises with the garrison, and splits across trails', () => {
     assert.ok(applyCommand(s, { t: 'link', p: 0, from: from.id, to: a.id }));
     if (targets > 1) assert.ok(applyCommand(s, { t: 'link', p: 0, from: from.id, to: b.id }));
 
-    let count = 0;
     for (let i = 0; i < 10 * TICK_HZ; i++) {
       from.count = KINDS.nest.cap * fill;
-      const before = s.packets.length;
       step(s);
-      // Arrivals leave the list too, so count growth plus whatever left it.
-      count += Math.max(0, s.packets.length - before);
     }
 
-    return count;
+    return a.count + b.count + s.packets.filter((p) => !p.dead).length;
   };
 
-  const thin = emitted(0.05, 1);
-  const full = emitted(1, 1);
-  assert.ok(full > thin * 2, `a full nest should out-produce a thin one: ${full} vs ${thin}`);
+  const thin = delivered(0.05, 1);
+  const full = delivered(1, 1);
+  assert.ok(full > thin * 1.6, `a full nest should out-produce a thin one: ${full} vs ${thin}`);
 
   // Two trails share that output rather than doubling it.
-  const twoTrails = emitted(1, 2);
+  const twoTrails = delivered(1, 2);
   assert.ok(
-    twoTrails < full * 1.35,
+    twoTrails < full * 1.3,
     `two trails must share one node's output, not double it: ${full} vs ${twoTrails}`,
   );
 });
 
-test('a garrison stops at its cap and passes the rest onward', () => {
+test('a full garrison does not block the column: it walks through and lands beyond', () => {
   const s = createGame(4242, 2);
   const hub = s.nodes[s.players[0].home];
-  const onward = s.nodes.find((n) => n.id !== hub.id && canLink(s, 0, hub.id, n.id))!;
   hub.count = KINDS.nest.cap;
-  onward.owner = 0;
-  onward.count = 0;
-  assert.ok(applyCommand(s, { t: 'link', p: 0, from: hub.id, to: onward.id }));
+  // Two neighbours: one the column comes from, one it should be sent on to.
+  const reachable = s.nodes.filter((n) => n.id !== hub.id && canLink(s, 0, hub.id, n.id));
+  assert.ok(reachable.length >= 2, 'this map has to give the hub two neighbours');
+  const [source, dest] = reachable;
+  for (const n of [source, dest]) {
+    n.owner = 0;
+    n.count = 0;
+  }
+  assert.ok(applyCommand(s, { t: 'link', p: 0, from: hub.id, to: dest.id }));
 
-  // Pour a fat column into a node that is already full and has somewhere to send.
-  s.packets.push({ owner: 0, unit: 'worker', amount: 40, from: onward.id, to: hub.id, pos: 0.999, air: false, dead: false });
-  const before = hub.count;
-  step(s);
-  assert.equal(hub.count, before, 'a full garrison must not go past its cap');
-  assert.ok(hub.carry.worker > 30, `the surplus must be waiting to move on, was ${hub.carry.worker}`);
+  const column = 20;
+  for (let i = 0; i < column; i++) {
+    s.packets.push({ owner: 0, unit: 'worker', amount: 1, from: source.id, to: hub.id, pos: 0.999, air: false, hops: TRANSIT_HOPS, dead: false });
+  }
+  const destBefore = dest.count;
+  run(s, 12);
+
+  assert.equal(hub.count, KINDS.nest.cap, 'a full garrison must not go past its cap');
+  // The hub also produces on its own, so the far node gains more than the
+  // column -- what matters is that the column is not swallowed on the doorstep.
+  assert.ok(
+    dest.count - destBefore >= column,
+    `the column must reach the far side, it gained ${(dest.count - destBefore).toFixed(1)} of ${column}`,
+  );
+});
+
+test('two full nodes facing each other do not pass the same ants round for ever', () => {
+  const s = createGame(4242, 2);
+  const a = s.nodes[s.players[0].home];
+  const b = s.nodes.find((n) => n.id !== a.id && canLink(s, 0, a.id, n.id))!;
+  b.owner = 0;
+  a.count = KINDS[a.kind].cap;
+  b.count = KINDS[b.kind].cap;
+  assert.ok(applyCommand(s, { t: 'link', p: 0, from: a.id, to: b.id }));
+  assert.ok(applyCommand(s, { t: 'link', p: 0, from: b.id, to: a.id }));
+
+  // Both are full and pointing at each other, so nothing either sends can ever
+  // be used. If forwarding had no brake, every ant produced would join a loop
+  // that never empties and the packet list would climb without limit.
+  run(s, 30);
+  const before = s.packets.length;
+  run(s, 30);
+  assert.ok(
+    s.packets.length < before * 1.6 + 20,
+    `the crowd must settle, went from ${before} to ${s.packets.length}`,
+  );
 });
 
 test('a node passes foreign units through instead of turning them into its own', () => {
@@ -560,11 +604,17 @@ test('a node passes foreign units through instead of turning them into its own',
 
   // Workers arrive at a full beetle den. They must come out the far side still
   // workers -- a den makes beetles, it does not convert what walks through it.
+  // They come from a third node, because nothing is ever sent straight back
+  // where it came from.
+  const source = s.nodes.find((n) => n.id !== den.id && n.id !== onward.id && canLink(s, 0, den.id, n.id))!;
+  assert.ok(source, 'the column needs somewhere to have come from');
   for (let i = 0; i < 12; i++) {
-    s.packets.push({ owner: 0, unit: 'worker', amount: 1, from: onward.id, to: den.id, pos: 0.999, air: false, dead: false });
+    s.packets.push({ owner: 0, unit: 'worker', amount: 1, from: source.id, to: den.id, pos: 0.999, air: false, hops: TRANSIT_HOPS, dead: false });
   }
-  run(s, 4);
-  const leaving = s.packets.filter((p) => p.from === den.id);
+  // One tick: just far enough for them to step through, and not so far that
+  // they have already been absorbed at the far end.
+  step(s);
+  const leaving = s.packets.filter((p) => !p.dead && p.from === den.id);
   assert.ok(leaving.length > 0, 'something must be moving on');
   assert.ok(
     leaving.some((p) => p.unit === 'worker'),
@@ -588,7 +638,7 @@ test('beetles keep pace with the ants, wasps fly twice as fast', () => {
   s.players[0].home = a.id;
   const kinds = ['worker', 'beetle', 'wasp'] as const;
   for (const unit of kinds) {
-    s.packets.push({ owner: 0, unit, amount: 1, from: a.id, to: b.id, pos: 0, air: unit === 'wasp', dead: false });
+    s.packets.push({ owner: 0, unit, amount: 1, from: a.id, to: b.id, pos: 0, air: unit === 'wasp', hops: TRANSIT_HOPS, dead: false });
   }
   run(s, 5);
   const at = (unit: string) => s.packets.find((p) => p.unit === unit)!.pos;
@@ -819,7 +869,7 @@ test('a strong node speeds its walkers up, and leaves wasps alone', () => {
     a.count = KINDS[kind].cap * fill;
     s.packets.push({
       owner: 0, unit: KINDS[kind].unit, amount: 1,
-      from: a.id, to: b.id, pos: 0, air: kind === 'hive', dead: false,
+      from: a.id, to: b.id, pos: 0, air: kind === 'hive', hops: TRANSIT_HOPS, dead: false,
     });
     run(s, 4);
 
