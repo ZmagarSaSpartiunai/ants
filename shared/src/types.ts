@@ -249,7 +249,18 @@ export interface GameNode {
   kind: NodeKind;
   owner: number;
   count: number;
+  /**
+   * Rotating cursor for pass-through, so a tower that has three trails open
+   * feeds all three instead of pouring everything down one of them.
+   *
+   * It wraps at a number divisible by every possible number of exits, so the
+   * turn does not skip anybody when the counter comes round.
+   */
+  relay: number;
 }
+
+/** The cursor wraps here: 12 = 1*2*3*4, and no node has more than four exits. */
+export const RELAY_WRAP = 12;
 
 export interface Trail {
   id: number;

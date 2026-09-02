@@ -567,6 +567,67 @@ test('a full garrison does not block the column: it walks through and lands beyo
   );
 });
 
+test('a full tower shares the column out across every trail it has open', () => {
+  const s = createGame(4242, 2);
+  const hub = s.nodes[s.players[0].home];
+  hub.count = KINDS.nest.cap;
+  const reachable = s.nodes.filter((n) => n.id !== hub.id && canLink(s, 0, hub.id, n.id));
+  assert.ok(reachable.length >= 3, 'this map has to give the hub three neighbours');
+  const [source, ...outs] = reachable;
+  const exits = outs.slice(0, KINDS.nest.links);
+  assert.equal(exits.length, 3, 'the point of the test is more than one way out');
+  for (const n of [source, ...exits]) {
+    n.owner = 0;
+    n.count = 0;
+  }
+  for (const n of exits) assert.ok(applyCommand(s, { t: 'link', p: 0, from: hub.id, to: n.id }));
+
+  // A fat column walks into a tower that has no room and three ways on.
+  const column = 60;
+  for (let i = 0; i < column; i++) {
+    s.packets.push({ owner: 0, unit: 'worker', amount: 1, from: source.id, to: hub.id, pos: 0.999, air: false, hops: TRANSIT_HOPS, dead: false });
+  }
+  step(s);
+
+  const sent = exits.map((n) => s.packets.filter((p) => !p.dead && p.from === hub.id && p.to === n.id).length);
+  const total = sent.reduce((a, b) => a + b, 0);
+  assert.ok(total >= column, `the whole column must move on, ${total} of ${column}`);
+  const fair = total / exits.length;
+  for (const [i, got] of sent.entries()) {
+    assert.ok(
+      Math.abs(got - fair) <= 2,
+      `every open trail takes a share: ${sent.join('/')} down trail ${i}, fair is ${fair.toFixed(1)}`,
+    );
+  }
+});
+
+test('pass-through skips a trail into a neighbour that is itself full', () => {
+  const s = createGame(4242, 2);
+  const hub = s.nodes[s.players[0].home];
+  hub.count = KINDS.nest.cap;
+  const reachable = s.nodes.filter((n) => n.id !== hub.id && canLink(s, 0, hub.id, n.id));
+  assert.ok(reachable.length >= 3, 'this map has to give the hub three neighbours');
+  const [source, blocked, open] = reachable;
+  source.owner = 0;
+  source.count = 0;
+  blocked.owner = 0;
+  blocked.count = KINDS[blocked.kind].cap;
+  open.owner = 0;
+  open.count = 0;
+  assert.ok(applyCommand(s, { t: 'link', p: 0, from: hub.id, to: blocked.id }));
+  assert.ok(applyCommand(s, { t: 'link', p: 0, from: hub.id, to: open.id }));
+
+  for (let i = 0; i < 20; i++) {
+    s.packets.push({ owner: 0, unit: 'worker', amount: 1, from: source.id, to: hub.id, pos: 0.999, air: false, hops: TRANSIT_HOPS, dead: false });
+  }
+  step(s);
+
+  const toBlocked = s.packets.filter((p) => !p.dead && p.from === hub.id && p.to === blocked.id).length;
+  const toOpen = s.packets.filter((p) => !p.dead && p.from === hub.id && p.to === open.id).length;
+  assert.equal(toBlocked, 0, 'nothing should be sent at a neighbour that cannot take it');
+  assert.ok(toOpen >= 20, `it all goes the way that is open, got ${toOpen}`);
+});
+
 test('two full nodes facing each other do not pass the same ants round for ever', () => {
   const s = createGame(4242, 2);
   const a = s.nodes[s.players[0].home];

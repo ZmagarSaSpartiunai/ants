@@ -14,6 +14,7 @@ import {
   NEUTRAL,
   Packet,
   Point,
+  RELAY_WRAP,
   TRANSIT_HOPS,
   UNIT_SIZE,
   UnitType,
@@ -543,19 +544,33 @@ function move(s: GameState, events: SimEvent[]): void {
  */
 function forward(s: GameState, p: Packet, node: GameNode): void {
   if (p.hops <= 0) return;
-  let best: Trail | undefined;
-  let bestNeed = -Infinity;
+
+  // Every way out except the one it came in by.
+  const exits: Trail[] = [];
   for (const t of s.trails) {
     if (t.from !== node.id || t.owner !== node.owner) continue;
     if (t.to === p.from) continue;
-    const to = s.nodes[t.to];
-    const need = to.owner === node.owner ? 1 - to.count / KINDS[to.kind].cap : 2;
-    if (need > bestNeed) {
-      bestNeed = need;
-      best = t;
-    }
+    exits.push(t);
   }
-  if (!best) return;
+  if (!exits.length) return;
+
+  // Somewhere that can actually use them: anything not ours, or one of ours
+  // with room left. This is the dynamic half of the rule -- a trail into a
+  // neighbour that is itself full is skipped while a hungrier one is open, and
+  // comes back into the rotation the moment that neighbour has room again.
+  const useful = exits.filter((t) => {
+    const to = s.nodes[t.to];
+
+    return to.owner !== node.owner || to.count < KINDS[to.kind].cap;
+  });
+  const open = useful.length ? useful : exits;
+
+  // Round-robin, not "whichever needs it most". Picking the neediest sent the
+  // whole stream down a single trail and left the other two carrying only what
+  // the tower made itself, which is exactly not what opening three trails out
+  // of a node is supposed to mean.
+  const best = open[node.relay % open.length];
+  node.relay = (node.relay + 1) % RELAY_WRAP;
 
   p.from = node.id;
   p.to = best.to;
