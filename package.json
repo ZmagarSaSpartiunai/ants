@@ -5,13 +5,14 @@
   "workspaces": [
     "shared",
     "server",
-    "client"
+    "client",
+    "games/*/shared"
   ],
   "scripts": {
-    "build": "npm run build -w @ants/shared && npm run build -w @ants/server && npm run build -w @ants/client",
+    "build": "npm run build -w @ants/shared && npm run build -w @pigeons/shared && npm run build -w @ants/server && npm run build -w @ants/client",
     "dev:client": "npm run dev -w @ants/client",
     "dev:server": "npm run dev -w @ants/server",
-    "test": "npm run test -w @ants/shared && npm run test -w @ants/server"
+    "test": "npm run test -w @ants/shared && npm run test -w @pigeons/shared && npm run test -w @ants/server"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
