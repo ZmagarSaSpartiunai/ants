@@ -2,12 +2,15 @@ import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WebSocket, WebSocketServer } from 'ws';
+import { WebSocket } from 'ws';
 import { BotLevel, ClientMsg, MAX_SLOTS, MIN_SLOTS } from '@ants/shared';
 import { makeCode, normalizeCode } from './codes.js';
 import { Room, sanitizeName } from './room.js';
 import { closeDb, initDb } from './db.js';
 import { gateEnabled, handleGate, hasPass } from './gate.js';
+import { findGame, GAMES, Game, shelfFor, socketPath } from './registry.js';
+import { renderShelf } from './shelf.js';
+import { attachUpgrade, mountSocket } from './sockets.js';
 
 const PORT = Number(process.env.PORT ?? 8787);
 const HOST = process.env.HOST ?? '127.0.0.1';
@@ -22,31 +25,41 @@ const MAX_MSGS_PER_SEC = 40;
  * The box already runs a Caddy for the control panel, but that site answers on
  * a bare port and matches every Host, so a second hostname pointed at it would
  * serve the panel instead. One process, one port, and nothing to break next
- * door -- and now that one process carries a small shelf of games.
+ * door -- and now that one process carries a whole catalogue.
  *
- *   /          the shelf
- *   /ants/     this game's client
- *   /ants/ws   this game's socket
- *   /luna/     a self-contained single file, if it has been put there
+ * Which paths exist is not decided here: it comes from the registry, so adding
+ * a game is one entry there and nothing else.
  *
  * Roots are resolved against this file, not the working directory: the defaults
  * have to hold whether the server is started from the repo root or elsewhere.
  */
 const here = dirname(fileURLToPath(import.meta.url));
-const WEB_ROOT = resolve(process.env.WEB_ROOT ?? join(here, '../../client/dist'));
-const PORTAL_ROOT = resolve(process.env.PORTAL_ROOT ?? join(here, '../../portal'));
-const LUNA_ROOT = process.env.LUNA_ROOT ? resolve(process.env.LUNA_ROOT) : null;
 
-/** Which folder answers for this path, and what to strip off the front. */
-function route(pathname: string): { root: string; rel: string } {
-  if (pathname === '/ants' || pathname.startsWith('/ants/')) {
-    return { root: WEB_ROOT, rel: pathname.slice(5) || '/' };
-  }
-  if (LUNA_ROOT && (pathname === '/luna' || pathname.startsWith('/luna/'))) {
-    return { root: LUNA_ROOT, rel: pathname.slice(5) || '/' };
-  }
+/**
+ * @param game the game to locate on disk
+ * @return its folder, or null when it was never put there
+ */
+function rootFor(game: Game): string | null {
+  if (game.rootEnv) {
+    const set = process.env[game.rootEnv];
 
-  return { root: PORTAL_ROOT, rel: pathname };
+    return set ? resolve(set) : null;
+  }
+  const override = process.env[`${game.id.toUpperCase()}_WEB_ROOT`];
+  if (override) return resolve(override);
+
+  return resolve(join(here, `../../${game.id === 'ants' ? 'client' : `games/${game.id}/client`}/dist`));
+}
+
+/**
+ * @param game the card to test
+ * @return whether its files are on this box
+ */
+function available(game: Game): boolean {
+  if (game.kind === 'shelf') return shelfFor(game.id).some(available);
+  const root = rootFor(game);
+
+  return !!root && existsSync(root);
 }
 
 const TYPES: Record<string, string> = {
@@ -62,16 +75,40 @@ const TYPES: Record<string, string> = {
 
 function serveStatic(req: IncomingMessage, res: ServerResponse): void {
   const url = new URL(req.url ?? '/', 'http://localhost');
-  const target = route(url.pathname);
+  const game = findGame(url.pathname);
+
+  // No game owns this path, or the game is itself a shelf: draw the shelf.
+  if (!game || game.kind === 'shelf') {
+    // Only what is actually on this box. A card whose files were never deployed
+    // would be a link straight into a 404, which reads as a broken game.
+    const cards = shelfFor(game ? game.id : null).filter(available);
+    const html = renderShelf(game ? game.title : null, cards);
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
+    res.end(html);
+
+    return;
+  }
+
+  const root = rootFor(game);
+  if (!root || !existsSync(root)) {
+    // A game in the catalogue whose files were never put on this box. Saying so
+    // beats a blank 404 when a deploy only half happened.
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+    res.end(`${game.title}: не зібрано на цій машині`);
+
+    return;
+  }
+
   // normalize collapses any ../ before it can escape the web root.
-  const rel = normalize(decodeURIComponent(target.rel)).replace(/^(\.\.[/\\])+/, '');
-  let file = join(target.root, rel);
-  if (!file.startsWith(target.root)) {
+  const rel = normalize(decodeURIComponent(url.pathname.slice(game.path.length) || '/'))
+    .replace(/^(\.\.[/\\])+/, '');
+  let file = join(root, rel);
+  if (!file.startsWith(root)) {
     res.writeHead(403).end();
 
     return;
   }
-  if (!existsSync(file) || statSync(file).isDirectory()) file = join(target.root, 'index.html');
+  if (!existsSync(file) || statSync(file).isDirectory()) file = join(root, 'index.html');
   if (!existsSync(file)) {
     res.writeHead(404).end('not built');
 
@@ -195,16 +232,7 @@ const http = createServer((req: IncomingMessage, res: ServerResponse) => {
   });
 });
 
-const wss = new WebSocketServer({
-  server: http,
-  path: '/ants/ws',
-  maxPayload: 16 * 1024,
-  // The gate has to cover the socket too, or the page is closed and the game
-  // behind it is not.
-  verifyClient: ({ req }, done) => done(hasPass(req)),
-});
-
-wss.on('connection', (ws: WebSocket) => {
+function onAntsSocket(ws: WebSocket): void {
   let alive = true;
   ws.on('pong', () => {
     alive = true;
@@ -242,7 +270,27 @@ wss.on('connection', (ws: WebSocket) => {
     membership.delete(ws);
   });
   ws.on('error', () => ws.terminate());
-});
+}
+
+/**
+ * Every multiplayer game in the catalogue gets its socket mounted here. A new
+ * game adds its handler and nothing else: no second server, no second port.
+ *
+ * The gate covers the sockets too, or the page would be closed and the game
+ * behind it wide open.
+ */
+const HANDLERS: Record<string, (ws: WebSocket) => void> = {
+  ants: onAntsSocket,
+};
+
+for (const game of GAMES) {
+  if (!game.multiplayer) continue;
+  const handler = HANDLERS[game.id];
+  if (!handler) continue;
+  mountSocket(socketPath(game), handler);
+  console.log(`[host] ${game.title}: ${socketPath(game)}`);
+}
+attachUpgrade(http, hasPass);
 
 // Lobbies that nobody ever joined would otherwise sit in memory for good.
 setInterval(() => {
@@ -261,7 +309,6 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
     console.log(`[ants] ${sig}, shutting down`);
     for (const room of rooms.values()) room.stop();
-    wss.close();
     http.close();
     void closeDb().finally(() => process.exit(0));
   });
