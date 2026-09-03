@@ -12,32 +12,27 @@ import {
   TICK_HZ,
 } from '@ants/shared';
 import { recordMatch } from './db.js';
+import { Lobby } from './lobby.js';
 
 /** A full snapshot every five seconds: enough to heal a reconnect or any drift. */
 const SYNC_EVERY = TICK_HZ * 5;
-/** A lobby nobody joins is garbage after this long. */
-const LOBBY_TIMEOUT_MS = 15 * 60000;
-const MAX_NAME = 20;
 
-interface Seat {
-  slot: number;
-  name: string;
-  ws: WebSocket | null;
-  bot: Bot | null;
-  /** A seat played by the machine, whether declared up front or after a drop. */
-  isBot: boolean;
-}
-
+/**
+ * One match of Мурашник.
+ *
+ * The seats are not kept here: they live in a Lobby, which knows nothing about
+ * ants and is shared with every other game on the host. What is left in this
+ * file is only what makes this game this game -- the tick, the bots, and the
+ * summary written when it ends.
+ */
 export class Room {
-  private readonly seats: Seat[] = [];
+  private readonly lobby: Lobby<WebSocket>;
+  /** Bots by slot; a seat with no bot is played by a person. */
+  private readonly bots: (Bot | null)[];
   private state: GameState | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private queued: Command[] = [];
   private seed = 0;
-  private readonly created = Date.now();
-  started = false;
-  /** Set once the match is over: the room is done and takes no more input. */
-  finished = false;
 
   constructor(
     readonly code: string,
@@ -45,52 +40,51 @@ export class Room {
     readonly level: BotLevel,
     private readonly onEmpty: (room: Room) => void,
   ) {
-    // Every seat starts open. A room that fills itself with bots on creation
-    // cannot be joined by the friend it was created for -- which is exactly
-    // what happened, and it reported itself as "room full".
-    for (let i = 0; i < slots; i++) {
-      this.seats.push({ slot: i, name: `#${i + 1}`, ws: null, bot: null, isBot: false });
-    }
+    this.lobby = new Lobby<WebSocket>(code, slots);
+    this.bots = Array.from({ length: slots }, () => null);
+  }
+
+  get started(): boolean {
+    return this.lobby.started;
+  }
+
+  get finished(): boolean {
+    return this.lobby.finished;
+  }
+
+  get empty(): boolean {
+    return this.lobby.empty;
+  }
+
+  get stale(): boolean {
+    return this.lobby.stale;
   }
 
   /** Host puts a bot on an empty seat, or takes it off to reopen the seat. */
   setBot(slot: number, on: boolean): void {
-    if (this.started) return;
-    const seat = this.seats[slot];
-    if (!seat || seat.ws) return;
-    seat.isBot = on;
-    seat.name = on ? 'bot' : `#${slot + 1}`;
-    this.announce();
+    if (this.lobby.setBot(slot, on)) this.announce();
   }
 
-  get empty(): boolean {
-    return !this.seats.some((s) => s.ws);
-  }
-
-  get stale(): boolean {
-    return !this.started && Date.now() - this.created > LOBBY_TIMEOUT_MS;
-  }
-
-  /** Returns the assigned slot, or null when there is no seat left. */
+  /**
+   * @param ws the arriving socket
+   * @param name what the player typed, possibly empty
+   * @return the assigned slot, or null when the room is full
+   */
   join(ws: WebSocket, name: string): number | null {
-    const seat = this.seats.find((s) => !s.ws && !s.isBot);
-    if (!seat) return null;
-    seat.ws = ws;
-    seat.name = sanitizeName(name) || `#${seat.slot + 1}`;
-    this.announce();
+    const slot = this.lobby.join(ws, name);
+    if (slot !== null) this.announce();
 
-    return seat.slot;
+    return slot;
   }
 
   leave(ws: WebSocket): void {
-    const seat = this.seats.find((s) => s.ws === ws);
+    const seat = this.lobby.release(ws);
     if (!seat) return;
-    seat.ws = null;
     if (this.started) {
       // A dropped player is taken over by a bot rather than freezing the match
       // for everybody else.
       seat.isBot = true;
-      seat.bot ??= new Bot(seat.slot, this.level, (this.seed + seat.slot * 7919) >>> 0);
+      this.bots[seat.slot] ??= new Bot(seat.slot, this.level, (this.seed + seat.slot * 7919) >>> 0);
     }
     if (this.empty) {
       this.stop();
@@ -102,24 +96,19 @@ export class Room {
   }
 
   isHost(ws: WebSocket): boolean {
-    return this.seats.find((s) => s.ws)?.ws === ws;
+    return this.lobby.isHost(ws);
   }
 
   slotOf(ws: WebSocket): number | null {
-    return this.seats.find((s) => s.ws === ws)?.slot ?? null;
+    return this.lobby.slotOf(ws);
   }
 
   roster(): RoomPlayer[] {
-    return this.seats.map((s) => ({
-      slot: s.slot,
-      name: s.name,
-      bot: s.isBot,
-      connected: !!s.ws,
-    }));
+    return this.lobby.roster();
   }
 
   announce(): void {
-    for (const seat of this.seats) {
+    for (const seat of this.lobby.seats) {
       if (!seat.ws) continue;
       this.sendTo(seat.ws, {
         t: 'room',
@@ -133,16 +122,16 @@ export class Room {
 
   start(): void {
     if (this.started) return;
-    this.started = true;
+    this.lobby.started = true;
     this.seed = (Math.random() * 0xfffff) >>> 0;
     this.state = createGame(this.seed, this.slots);
-    for (const seat of this.seats) {
+    for (const seat of this.lobby.seats) {
       if (seat.isBot || !seat.ws) {
         seat.isBot = true;
-        seat.bot = new Bot(seat.slot, this.level, (this.seed + seat.slot * 7919) >>> 0);
+        this.bots[seat.slot] = new Bot(seat.slot, this.level, (this.seed + seat.slot * 7919) >>> 0);
       }
     }
-    for (const seat of this.seats) {
+    for (const seat of this.lobby.seats) {
       if (!seat.ws) continue;
       this.sendTo(seat.ws, { t: 'start', state: this.state, you: seat.slot, at: 0 });
     }
@@ -163,9 +152,9 @@ export class Room {
     const s = this.state;
     if (!s) return;
 
-    for (const seat of this.seats) {
-      if (!seat.bot) continue;
-      for (const cmd of seat.bot.think(s)) this.queued.push(cmd);
+    for (const bot of this.bots) {
+      if (!bot) continue;
+      for (const cmd of bot.think(s)) this.queued.push(cmd);
     }
 
     // Only commands the rules actually accepted go on the wire. Clients replay
@@ -190,7 +179,7 @@ export class Room {
       // seats still held sockets, so it never counted as empty, and `stale`
       // only ever looks at lobbies that never started. Enough finished matches
       // and no new room could be created at all.
-      this.finished = true;
+      this.lobby.finished = true;
       this.onEmpty(this);
     }
   }
@@ -202,10 +191,10 @@ export class Room {
       code: this.code,
       seed: this.seed,
       slots: this.slots,
-      bots: this.seats.filter((x) => x.isBot).length,
+      bots: this.lobby.seats.filter((x) => x.isBot).length,
       winner: s.winner,
       ticks: s.tick,
-      players: this.seats.map((seat) => ({
+      players: this.lobby.seats.map((seat) => ({
         slot: seat.slot,
         name: seat.name,
         bot: seat.isBot,
@@ -221,7 +210,7 @@ export class Room {
 
   private broadcast(msg: ServerMsg): void {
     const data = JSON.stringify(msg);
-    for (const seat of this.seats) {
+    for (const seat of this.lobby.seats) {
       if (seat.ws && seat.ws.readyState === WebSocket.OPEN) seat.ws.send(data);
     }
   }
@@ -229,14 +218,4 @@ export class Room {
   private sendTo(ws: WebSocket, msg: ServerMsg): void {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
   }
-}
-
-/** Names are shown to other players, so strip control characters and markup. */
-export function sanitizeName(raw: unknown): string {
-  if (typeof raw !== 'string') return '';
-
-  return raw
-    .replace(/[\u0000-\u001f\u007f<>]/g, '')
-    .trim()
-    .slice(0, MAX_NAME);
 }
