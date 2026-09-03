@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { canFire, createMatch, resolveRound } from './match.js';
-import { GROUND_Y, MatchState, Shot } from './types.js';
+import { GROUND_Y, MatchState, Shot, START_HP } from './types.js';
 
 function seedShot(slot: number, angle: number): Shot {
   return { slot, food: 'seed', angle, power: 1 };
@@ -28,7 +28,7 @@ test('a fresh match seats every player alive and idle', () => {
   const s = createMatch(1234, 2);
 
   assert.equal(s.birds.length, 2);
-  assert.ok(s.birds.every((b) => b.alive && b.busy === 0 && b.hp === 100));
+  assert.ok(s.birds.every((b) => b.alive && b.busy === 0 && b.hp === START_HP));
   assert.equal(s.over, false);
 });
 
@@ -179,12 +179,16 @@ test('a shot that breaks a prop does not open a hole for the same round', () => 
   const s = createMatch(1234, 2);
   const roof = s.props[0];
   roof.hp = 1;
-  const through: Shot = { slot: 0, food: 'seed', angle: 0, power: 1 };
+  // One on each side, firing inward: the roof is between them, so neither
+  // shot can reach the other bird and both must meet the roof.
   s.birds[0].x = roof.x - 40;
   s.birds[0].y = roof.y + 10;
-  s.birds[1].x = roof.x - 40;
+  s.birds[1].x = roof.x + roof.w + 40;
   s.birds[1].y = roof.y + 10;
-  const result = resolveRound(s, [through, { ...through, slot: 1 }]);
+  const result = resolveRound(s, [
+    { slot: 0, food: 'seed', angle: 0, power: 1 },
+    { slot: 1, food: 'seed', angle: Math.PI, power: 1 },
+  ]);
 
   assert.ok(result.flights.every((f) => f.hitProp === roof.id), 'both met the intact roof');
   assert.equal(roof.intact, false, 'and it broke from the pair of them');

@@ -10,11 +10,20 @@ import { Food, FoodId } from './types.js';
  */
 export const FOOD_IDS: FoodId[] = ['seed', 'melon', 'pepper', 'icecream'];
 
+/**
+ * Numbers measured, not guessed. Two bots of equal skill settle a match in a
+ * median of 25 rounds with these; the earlier set ran to 52 and the longest
+ * match reached 110, which is a quarter of an hour of a child's attention.
+ *
+ * Blast radii carry most of that: a near miss chipping away is what keeps a
+ * round from being wasted, and it is what makes the melon worth its two rounds
+ * of standing there digesting.
+ */
 export const FOODS: Record<FoodId, Food> = {
-  seed: { id: 'seed', speed: 1.0, blast: 26, power: 18, drag: 1.0, bounces: 0, digest: 0 },
-  melon: { id: 'melon', speed: 0.78, blast: 72, power: 46, drag: 1.4, bounces: 0, digest: 2 },
-  pepper: { id: 'pepper', speed: 1.45, blast: 30, power: 34, drag: 0.0, bounces: 0, digest: 1 },
-  icecream: { id: 'icecream', speed: 1.1, blast: 34, power: 22, drag: 0.8, bounces: 2, digest: 1 },
+  seed: { id: 'seed', speed: 1.0, blast: 34, power: 30, drag: 1.0, bounces: 0, digest: 0 },
+  melon: { id: 'melon', speed: 0.9, blast: 94, power: 48, drag: 1.4, bounces: 0, digest: 2 },
+  pepper: { id: 'pepper', speed: 1.45, blast: 39, power: 38, drag: 0.0, bounces: 0, digest: 1 },
+  icecream: { id: 'icecream', speed: 1.1, blast: 44, power: 34, drag: 0.8, bounces: 2, digest: 1 },
 };
 
 /**

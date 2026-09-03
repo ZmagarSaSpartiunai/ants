@@ -1,14 +1,14 @@
 import { foodById, FOODS } from './food.js';
 import { Flight, flyShot } from './physics.js';
 import { windFor } from './rng.js';
-import { Bird, MatchState, MAX_BIRDS, MIN_BIRDS, Prop, Shot } from './types.js';
+import { Bird, MatchState, MAX_BIRDS, MIN_BIRDS, Prop, Shot, START_HP } from './types.js';
 
 /** Where each bird perches, in seat order. */
 const PERCHES: { x: number; y: number }[] = [
-  { x: 96, y: 250 },
-  { x: 704, y: 250 },
-  { x: 232, y: 128 },
-  { x: 568, y: 128 },
+  { x: 150, y: 250 },
+  { x: 650, y: 250 },
+  { x: 268, y: 126 },
+  { x: 532, y: 126 },
 ];
 
 export interface RoundResult {
@@ -31,7 +31,7 @@ export function createMatch(seed: number, players: number): MatchState {
   const birds: Bird[] = [];
   for (let i = 0; i < count; i++) {
     const perch = PERCHES[i];
-    birds.push({ slot: i, x: perch.x, y: perch.y, hp: 100, busy: 0, alive: true });
+    birds.push({ slot: i, x: perch.x, y: perch.y, hp: START_HP, busy: 0, alive: true });
   }
   const props: Prop[] = [
     { id: 1, x: 340, y: 212, w: 120, h: 24, kind: 'roof', hp: 70, intact: true },
@@ -74,7 +74,8 @@ export function resolveRound(s: MatchState, shots: Shot[]): RoundResult {
     if (fired.has(bird.slot)) continue;
     if (!Number.isFinite(shot.angle) || !Number.isFinite(shot.power)) continue;
 
-    const flight = flyShot({ x: bird.x, y: bird.y }, shot, s.props, wind);
+    const alive = s.birds.filter((b) => b.alive);
+    const flight = flyShot({ x: bird.x, y: bird.y }, shot, s.props, wind, alive);
     flights.push(flight);
     bird.busy = food.digest;
     fired.add(bird.slot);
@@ -116,10 +117,10 @@ export function resolveRound(s: MatchState, shots: Shot[]): RoundResult {
   }
   s.round++;
 
-  const alive = s.birds.filter((b) => b.alive);
-  if (alive.length <= 1) {
+  const standing = s.birds.filter((b) => b.alive);
+  if (standing.length <= 1) {
     s.over = true;
-    s.winner = alive.length === 1 ? alive[0].slot : null;
+    s.winner = standing.length === 1 ? standing[0].slot : null;
   }
   downed.sort((a, b) => a - b);
 

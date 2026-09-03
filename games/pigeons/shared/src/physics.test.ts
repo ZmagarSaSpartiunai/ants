@@ -87,9 +87,9 @@ test('a bounce runs out: the ice cream splats eventually', () => {
 });
 
 test('a shot that hits nothing lands on the ground', () => {
-  // From mid-field a full-power throw leaves the map before it can land, which
-  // is its own outcome; start at the edge to watch it come down.
-  const path = flyShot({ x: 100, y: 100 }, lobbed, [], 0);
+  // A full-power throw carries most of the map, which is its own outcome;
+  // a gentler one comes down where it can be watched.
+  const path = flyShot({ x: 100, y: 300 }, { ...lobbed, power: 0.5 }, [], 0);
 
   assert.equal(path.landing, 'ground');
   assert.ok(path.end.y >= GROUND_Y);

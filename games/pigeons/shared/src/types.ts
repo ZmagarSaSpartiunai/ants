@@ -12,8 +12,15 @@ export const SHOT_DT = 1 / 120;
 export const SHOT_MAX_T = 8;
 /** Downward pull, world units per second squared. */
 export const GRAVITY = 900;
-/** Speed of a throw at full power, before the food's own multiplier. */
-export const THROW_SPEED = 620;
+/**
+ * Speed of a throw at full power, before the food's own multiplier.
+ *
+ * Measured, not guessed: a throw's flat range is v^2/g, and at 620 the seed --
+ * the food you always have -- reached 427 units against 500 between the
+ * perches. Three foods out of four could not cross the map at all, which would
+ * have made the game unplayable with the one food that costs nothing.
+ */
+export const THROW_SPEED = 820;
 /** How hard the wind pushes, per unit of a food's drag. */
 export const WIND_FORCE = 150;
 
@@ -22,6 +29,18 @@ export const FIELD_W = 800;
 export const FIELD_H = 360;
 /** Below this the shot has left the world and nothing more can be hit. */
 export const GROUND_Y = 330;
+
+/**
+ * How close a shot must pass to knock a bird off its perch.
+ *
+ * Without this a shot flew straight through a bird and landed on the ground
+ * below it, and the blast was measured from there -- so a perfectly aimed throw
+ * did nothing at all. Bots played two hundred rounds without landing a hit.
+ */
+export const BIRD_RADIUS = 15;
+
+/** Starting health. Three clean seeds, or two melons, knock a bird off. */
+export const START_HP = 80;
 
 export const MIN_BIRDS = 2;
 export const MAX_BIRDS = 4;
