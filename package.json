@@ -11,7 +11,7 @@
     "build": "npm run build -w @ants/shared && npm run build -w @ants/server && npm run build -w @ants/client",
     "dev:client": "npm run dev -w @ants/client",
     "dev:server": "npm run dev -w @ants/server",
-    "test": "npm run test -w @ants/shared"
+    "test": "npm run test -w @ants/shared && npm run test -w @ants/server"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
