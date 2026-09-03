@@ -17,6 +17,14 @@ export interface RoundResult {
   wind: number;
   /** One per shot that counted, in seat order. */
   flights: Flight[];
+  /**
+   * The shots those flights came from, same order.
+   *
+   * Without this a client had to work out for itself which shots the rules
+   * accepted in order to know what each flight was carrying -- which means a
+   * second copy of the rules, drifting quietly from the first.
+   */
+  shots: Shot[];
   /** Slots knocked out this round. In a tie there can be more than one. */
   downed: number[];
 }
@@ -76,6 +84,7 @@ export function createMatch(seed: number, players: number): MatchState {
 export function resolveRound(s: MatchState, shots: Shot[]): RoundResult {
   const wind = windFor(s.seed, s.round);
   const flights: Flight[] = [];
+  const counted: Shot[] = [];
   const hurt = new Map<number, number>();
   const propHurt = new Map<number, number>();
   const fired = new Set<number>();
@@ -93,6 +102,7 @@ export function resolveRound(s: MatchState, shots: Shot[]): RoundResult {
     const alive = s.birds.filter((b) => b.alive);
     const flight = flyShot({ x: bird.x, y: bird.y }, shot, s.props, wind, alive);
     flights.push(flight);
+    counted.push(shot);
     bird.busy = food.digest;
     fired.add(bird.slot);
 
@@ -140,7 +150,7 @@ export function resolveRound(s: MatchState, shots: Shot[]): RoundResult {
   }
   downed.sort((a, b) => a - b);
 
-  return { round: s.round - 1, wind, flights, downed };
+  return { round: s.round - 1, wind, flights, shots: counted, downed };
 }
 
 /**

@@ -13,7 +13,7 @@ import {
   resolveRound,
   windFor,
 } from '@pigeons/shared';
-import { Fleck, FOOD_TINT, Hud, Splat, View } from './render.js';
+import { Decal, Fleck, FOOD_TINT, Hud, View } from './render.js';
 import './style.css';
 
 /**
@@ -60,15 +60,28 @@ class Game {
   private food: FoodId = 'seed';
   private drag: { x: number; y: number } | null = null;
   private preview: Flight | null = null;
+  private power = 0;
+  private aimAngle = 0;
+  /**
+   * Health as the player sees it.
+   *
+   * The whole round is decided the moment you let go, so the true hp drops
+   * before the shot has even left the bird -- which looked exactly like the bug
+   * it was. The bar follows this instead, and this only starts moving once the
+   * splat has actually landed.
+   */
+  private shown: number[] = [];
   private flights: Flight[] = [];
   private flightAt = 0;
   private pending: Shot[] = [];
-  private splats: Splat[] = [];
+  private decals: Decal[] = [];
   private flecks: Fleck[] = [];
   private flash = new Map<number, number>();
   private falling = new Map<number, number>();
   private time = 0;
   private settleFor = 0;
+  /** Counts down while the player is digesting and cannot fire. */
+  private waitFor = 0;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -103,8 +116,9 @@ class Game {
     this.preview = null;
     this.flights = [];
     this.pending = [];
-    this.splats = [];
+    this.decals = [];
     this.flecks = [];
+    this.shown = this.state.birds.map((b) => b.hp);
     this.flash.clear();
     this.falling.clear();
     this.ui.banner.hidden = true;
@@ -178,6 +192,7 @@ class Game {
   private cancelDrag(): void {
     this.drag = null;
     this.preview = null;
+    this.power = 0;
   }
 
   /**
@@ -207,9 +222,12 @@ class Game {
     const shot = this.shotFrom(at);
     if (!shot) {
       this.preview = null;
+      this.power = 0;
 
       return;
     }
+    this.power = shot.power;
+    this.aimAngle = shot.angle;
     const me = this.state.birds[YOU];
     // Flown through the very same function the round will use, so what the
     // player is shown and what actually happens can never disagree.
@@ -222,9 +240,14 @@ class Game {
     );
   }
 
-  private fire(mine: Shot): void {
+  /**
+   * @param mine the player's shot, or null when they are digesting and the
+   *   round has to go ahead without them
+   * @return void
+   */
+  private fire(mine: Shot | null): void {
     const theirs = this.bot.choose(this.state);
-    this.pending = theirs ? [mine, theirs] : [mine];
+    this.pending = [mine, theirs].filter((x): x is Shot => x !== null);
 
     // The round is decided now, all at once, and only then played back. The
     // animation is a retelling of something already settled -- which is exactly
@@ -232,6 +255,9 @@ class Game {
     const before = this.state.birds.map((b) => b.hp);
     const result = resolveRound(this.state, this.pending);
     this.flights = result.flights;
+    // The round says which shots it accepted, so the client never has to
+    // reason about the rules to know what each flight is carrying.
+    this.thrown = result.shots.map((shot) => shot.food);
     this.flightAt = 0;
     this.phase = this.flights.length ? 'fly' : 'settle';
     this.settleFor = 0.5;
@@ -240,12 +266,39 @@ class Game {
   }
 
   private damage: number[] = [];
+  /** Which food each flight carried, in the same order as `flights`. */
+  private thrown: FoodId[] = [];
 
   /** Called once every flight has finished playing: this is where it lands. */
   private land(): void {
-    for (const flight of this.flights) {
-      const food = this.food;
-      this.splats.push({ x: flight.end.x, y: flight.end.y, food, born: this.time });
+    for (let f = 0; f < this.flights.length; f++) {
+      const flight = this.flights[f];
+      const food = this.thrown[f] ?? 'seed';
+      // The splat sticks to whatever stopped it and stays there for the rest of
+      // the match. A bird walking around wearing what you threw at it is the
+      // joke the whole game is built on, and it costs one anchor to keep.
+      const anchor =
+        flight.hitBird !== null
+          ? ({ kind: 'bird', slot: flight.hitBird } as const)
+          : flight.hitProp !== null
+            ? ({ kind: 'prop', id: flight.hitProp } as const)
+            : ({ kind: 'ground' } as const);
+      let x = flight.end.x;
+      let y = flight.end.y;
+      if (anchor.kind === 'bird') {
+        // Kept on the body. Left free it drifted onto the head and read as a
+        // hat, and it collided with the health bar sitting just above.
+        const hit = this.state.birds[anchor.slot];
+        x = Math.max(-11, Math.min(12, flight.end.x - hit.x));
+        y = Math.max(-5, Math.min(8, flight.end.y - hit.y));
+      } else if (anchor.kind === 'prop') {
+        const prop = this.state.props.find((p) => p.id === anchor.id);
+        if (prop) {
+          x = flight.end.x - prop.x;
+          y = flight.end.y - prop.y;
+        }
+      }
+      this.decals.push({ anchor, x, y, food, born: this.time, seed: Math.random() * 6, run: 0 });
       const tint = FOOD_TINT[food][0];
       for (let i = 0; i < 14; i++) {
         const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.6;
@@ -306,12 +359,34 @@ class Game {
       f.life -= dt / 0.9;
       if (f.life <= 0) this.flecks.splice(i, 1);
     }
-    this.splats = this.splats.filter((s) => this.time - s.born < 6);
+    // Drips keep running for a moment, then stop. The oldest splats are dropped
+    // once there are too many, so a long match cannot grow without limit.
+    for (const decal of this.decals) {
+      if (decal.run < 1) decal.run = Math.min(1, decal.run + dt * 0.55);
+    }
+    if (this.decals.length > 40) this.decals.splice(0, this.decals.length - 40);
+
+    // The bar only catches up once the shot has actually landed. During the
+    // flight the true hp is already lower, and following it would drain the
+    // bar before the splat arrived.
+    if (this.phase !== 'fly') {
+      for (let i = 0; i < this.state.birds.length; i++) {
+        const real = this.state.birds[i].hp;
+        const seen = this.shown[i] ?? real;
+        this.shown[i] = seen > real ? Math.max(real, seen - dt * 70) : real;
+      }
+    }
 
     if (this.phase === 'fly') {
       this.flightAt += REPLAY_SPEED;
       const longest = Math.max(...this.flights.map((f) => f.points.length));
       if (this.flightAt >= longest) this.land();
+    } else if (this.phase === 'aim' && !this.state.over && !canFire(this.state, YOU)) {
+      // Digesting is meant to cost you something. Nothing else advances a round
+      // in a one-device match, so without this the game simply stopped: the
+      // player could not throw and the bird opposite never got its turn either.
+      this.waitFor -= dt;
+      if (this.waitFor <= 0) this.fire(null);
     } else if (this.phase === 'settle') {
       this.settleFor -= dt;
       if (this.settleFor <= 0) {
@@ -319,6 +394,7 @@ class Game {
         if (this.state.over) this.finish();
         else {
           this.phase = 'aim';
+          this.waitFor = 1.1;
           this.refresh();
         }
       }
@@ -327,16 +403,19 @@ class Game {
     const hud: Hud = {
       you: YOU,
       preview: this.preview,
+      power: this.power,
+      aimAngle: this.aimAngle,
       flights: this.phase === 'fly' ? this.flights : [],
       flightAt: this.flightAt,
-      splats: this.splats,
+      decals: this.decals,
       flecks: this.flecks,
+      shown: this.shown,
       flash: this.flash,
       falling: this.falling,
       wind: windFor(this.state.seed, this.state.round),
       time: this.time,
     };
-    this.view.draw(this.state, hud);
+    this.view.draw(this.state, hud, dt);
   }
 }
 

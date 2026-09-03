@@ -193,3 +193,19 @@ test('a shot that breaks a prop does not open a hole for the same round', () => 
   assert.ok(result.flights.every((f) => f.hitProp === roof.id), 'both met the intact roof');
   assert.equal(roof.intact, false, 'and it broke from the pair of them');
 });
+
+test('the result says which shots the flights came from', () => {
+  // A client needs to know what each flight was carrying to draw the right
+  // splat. Making it re-derive that would be a second copy of these rules.
+  const s = createMatch(1234, 2);
+  resolveRound(s, [{ slot: 0, food: 'melon', angle: -0.6, power: 1 }]);
+  // Slot 0 is digesting now, so only slot 1's shot can count.
+  const r = resolveRound(s, [
+    { slot: 0, food: 'seed', angle: -0.6, power: 1 },
+    { slot: 1, food: 'pepper', angle: -2.4, power: 1 },
+  ]);
+
+  assert.equal(r.shots.length, r.flights.length);
+  assert.deepEqual(r.shots.map((x) => x.slot), [1]);
+  assert.equal(r.shots[0].food, 'pepper');
+});
