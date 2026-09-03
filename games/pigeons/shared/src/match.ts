@@ -39,6 +39,22 @@ export function createMatch(seed: number, players: number): MatchState {
     { id: 3, x: 450, y: 96, w: 64, h: 18, kind: 'awning', hp: 34, intact: true },
     { id: 4, x: 388, y: 148, w: 24, h: 60, kind: 'chimney', hp: 50, intact: true },
   ];
+  // A ledge under each bird. It is a real prop, not scenery: a bird drawn
+  // standing on something a shot passes straight through reads as a bug, and
+  // the ledge doubles as the cover you can hide a low shot behind. Tough on
+  // purpose -- it is a perch, not a target.
+  for (const bird of birds) {
+    props.push({
+      id: 10 + bird.slot,
+      x: bird.x - 27,
+      y: bird.y + 14,
+      w: 54,
+      h: 16,
+      kind: 'roof',
+      hp: 150,
+      intact: true,
+    });
+  }
 
   return { seed, round: 0, birds, props, over: false, winner: null };
 }

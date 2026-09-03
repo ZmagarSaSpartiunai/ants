@@ -1,0 +1,112 @@
+/*
+ * The controls are real buttons, not shapes drawn on the canvas. A thumb finds
+ * a button that the browser knows is a button: it gets the tap target, the
+ * focus ring and the disabled state for free, and none of that has to be
+ * re-invented in a hit test.
+ */
+:root {
+  color-scheme: dark;
+  --ink: #eef1f4;
+  --dim: #97a2ad;
+  --panel: #1b2027;
+  --edge: #2c333c;
+  --gold: #f0c04a;
+}
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #12161b;
+  color: var(--ink);
+  font: 16px/1.45 "Segoe UI", Roboto, "Noto Sans", system-ui, -apple-system, sans-serif;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+main {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+}
+
+.stage { position: relative; flex: 1; min-height: 0; }
+#field {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* The finger drags to aim, so the browser must not read it as a scroll. */
+  touch-action: none;
+}
+
+.panel {
+  flex: 0 0 auto;
+  background: var(--panel);
+  border-top: 1px solid var(--edge);
+  padding: 9px 10px calc(10px + env(safe-area-inset-bottom));
+}
+.status {
+  text-align: center;
+  font-size: 13.5px;
+  color: var(--dim);
+  min-height: 20px;
+  margin-bottom: 8px;
+}
+
+.foods { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+.food {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 8px 3px 7px;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: #232a33;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  transition: transform 0.1s, border-color 0.1s, background 0.1s;
+}
+.food:active { transform: translateY(1px); }
+.food.on {
+  border-color: var(--gold);
+  background: #2f3543;
+  box-shadow: 0 0 0 1px var(--gold) inset, 0 6px 16px -8px rgba(240, 192, 74, 0.7);
+}
+.food:disabled { opacity: 0.4; cursor: default; }
+.food:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.food .glyph { font-size: 23px; line-height: 1.1; }
+.food .name { font-size: 12px; }
+.food .cost { font-size: 10.5px; color: var(--dim); }
+
+.banner {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 4px;
+  text-align: center;
+  background: rgba(10, 14, 19, 0.76);
+  backdrop-filter: blur(3px);
+}
+.banner[hidden] { display: none; }
+.banner .title { margin: 0; font-size: clamp(26px, 7vw, 40px); font-weight: 700; }
+.banner.won .title { color: #9ada74; }
+.banner.lost .title { color: #ef7f66; }
+.banner.draw .title { color: var(--gold); }
+.banner .sub { margin: 0 0 14px; color: var(--dim); font-size: 14.5px; }
+.banner button {
+  padding: 11px 26px;
+  border: none;
+  border-radius: 11px;
+  background: var(--gold);
+  color: #201a06;
+  font: 600 15px/1 inherit;
+  cursor: pointer;
+}
+.banner button:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .food { transition: none; }
+}
