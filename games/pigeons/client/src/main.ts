@@ -82,6 +82,17 @@ class Game {
   private settleFor = 0;
   /** Counts down while the player is digesting and cannot fire. */
   private waitFor = 0;
+  /**
+   * Knocked back by a hit, and springing home.
+   *
+   * Purely how it looks: the bird's real position never moves, so the rules and
+   * every replay stay exactly as they were.
+   */
+  private recoil = new Map<number, { x: number; y: number; vx: number; vy: number; spin: number; spinV: number }>();
+  /** The bird is swallowing what was picked. */
+  private chewing: { slot: number; food: FoodId; t: number } | null = null;
+  /** What has come out the other end and is ready to throw. */
+  private loaded: FoodId | null = null;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -119,6 +130,9 @@ class Game {
     this.decals = [];
     this.flecks = [];
     this.shown = this.state.birds.map((b) => b.hp);
+    this.recoil.clear();
+    this.loaded = null;
+    this.chewing = { slot: YOU, food: 'seed', t: 0 };
     this.flash.clear();
     this.falling.clear();
     this.ui.banner.hidden = true;
@@ -137,6 +151,12 @@ class Game {
         `<span class="cost"></span>`;
       button.addEventListener('click', () => {
         this.food = id;
+        // Picking is eating. What you throw is what came out, so switching food
+        // means swallowing the new one first.
+        if (this.loaded !== id && this.chewing?.food !== id) {
+          this.loaded = null;
+          this.chewing = { slot: YOU, food: id, t: 0 };
+        }
         this.refresh();
       });
       this.ui.foods.appendChild(button);
@@ -151,7 +171,7 @@ class Game {
       const id = el.dataset.food as FoodId;
       const cost = FOODS[id].digest;
       el.classList.toggle('on', id === this.food);
-      el.disabled = !mine || this.phase !== 'aim';
+      el.disabled = !mine || (this.phase !== 'aim' && this.phase !== 'fly');
       const label = el.querySelector('.cost') as HTMLElement;
       label.textContent = cost === 0 ? 'без паузи' : cost === 1 ? 'пропуск 1' : `пропуск ${cost}`;
     }
@@ -162,6 +182,10 @@ class Game {
       this.ui.status.textContent = '';
     } else if (!mine && me.busy > 0) {
       this.ui.status.textContent = `Травиш ще ${me.busy}. Вітер ${arrow}`;
+    } else if (this.chewing) {
+      this.ui.status.textContent = 'Ковтає…';
+    } else if (this.phase === 'aim' && !this.loaded) {
+      this.ui.status.textContent = 'Обери, що з’їсти';
     } else if (this.phase === 'aim') {
       this.ui.status.textContent = `Тягни від свого голуба. Вітер ${arrow}`;
     } else {
@@ -170,7 +194,7 @@ class Game {
   }
 
   private onDown(e: PointerEvent): void {
-    if (this.phase !== 'aim') return;
+    if (this.phase !== 'aim' || !this.loaded) return;
     this.canvas.setPointerCapture(e.pointerId);
     this.drag = this.view.toWorld(e.clientX, e.clientY);
     this.updatePreview(this.drag);
@@ -212,7 +236,7 @@ class Game {
 
     return {
       slot: YOU,
-      food: this.food,
+      food: this.loaded ?? this.food,
       angle: Math.atan2(dy, dx),
       power: Math.min(1, len / FULL_DRAG),
     };
@@ -262,6 +286,8 @@ class Game {
     this.phase = this.flights.length ? 'fly' : 'settle';
     this.settleFor = 0.5;
     this.damage = this.state.birds.map((b, i) => before[i] - b.hp);
+    this.loaded = null;
+    this.chewing = { slot: YOU, food: this.food, t: 0 };
     this.refresh();
   }
 
@@ -315,7 +341,31 @@ class Game {
       }
     }
     for (let i = 0; i < this.damage.length; i++) {
-      if (this.damage[i] > 0.5) this.flash.set(i, 1);
+      if (this.damage[i] <= 0.5) continue;
+      this.flash.set(i, 1);
+      // Knocked away from whatever hit it, hard enough to see and no harder.
+      const bird = this.state.birds[i];
+      let ax = 0;
+      let ay = 0;
+      for (const flight of this.flights) {
+        const dx = bird.x - flight.end.x;
+        const dy = bird.y - flight.end.y;
+        const d = Math.hypot(dx, dy) || 1;
+        ax += dx / d;
+        ay += dy / d;
+      }
+      const len = Math.hypot(ax, ay) || 1;
+      // Measured against the bird: the first attempt lifted it about twelve
+      // pixels, which registers but does not read as being knocked off.
+      const push = Math.min(40, 8 + this.damage[i] * 0.7);
+      this.recoil.set(i, {
+        x: 0,
+        y: 0,
+        vx: (ax / len) * push * 5,
+        vy: (ay / len) * push * 5 - 44,
+        spin: 0,
+        spinV: (ax >= 0 ? 1 : -1) * 7,
+      });
     }
     for (const bird of this.state.birds) {
       if (!bird.alive && !this.falling.has(bird.slot)) this.falling.set(bird.slot, 0.001);
@@ -351,6 +401,29 @@ class Game {
       else this.flash.set(slot, next);
     }
     for (const [slot, v] of this.falling) this.falling.set(slot, v + dt * 2.2);
+
+    if (this.chewing) {
+      this.chewing.t += dt / 0.85;
+      if (this.chewing.t >= 1) {
+        this.loaded = this.chewing.food;
+        this.chewing = null;
+        this.refresh();
+      }
+    }
+
+    // A spring, not a slide: it snaps back past the mark and settles, which is
+    // what makes a knock read as a knock.
+    for (const [slot, k] of this.recoil) {
+      // Softer spring, bigger swing: the bird is thrown clear and then hauled
+      // back to its perch, rather than twitching in place.
+      k.vx += (-42 * k.x - 6 * k.vx) * dt;
+      k.vy += (-42 * k.y - 6 * k.vy) * dt;
+      k.spinV += (-42 * k.spin - 6 * k.spinV) * dt;
+      k.x += k.vx * dt;
+      k.y += k.vy * dt;
+      k.spin += k.spinV * dt;
+      if (Math.abs(k.x) < 0.15 && Math.abs(k.y) < 0.15 && Math.abs(k.vx) < 0.6) this.recoil.delete(slot);
+    }
     for (let i = this.flecks.length - 1; i >= 0; i--) {
       const f = this.flecks[i];
       f.vy += 900 * dt;
@@ -412,6 +485,9 @@ class Game {
       shown: this.shown,
       flash: this.flash,
       falling: this.falling,
+      recoil: this.recoil,
+      chewing: this.chewing,
+      loaded: this.loaded,
       wind: windFor(this.state.seed, this.state.round),
       time: this.time,
     };

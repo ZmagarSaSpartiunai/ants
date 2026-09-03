@@ -25,6 +25,23 @@ import {
 
 const TAU = Math.PI * 2;
 
+/**
+ * The line that holds the bird together.
+ *
+ * Without it the shapes were only gradients meeting other gradients, and
+ * against a pale sky the whole bird read as half transparent. A drawn animal
+ * for children needs an edge.
+ */
+const CONTOUR = 'rgba(26,31,40,0.85)';
+
+/** What the bird is shown eating, matching the buttons under the field. */
+const FOOD_GLYPH: Record<FoodId, string> = {
+  seed: '\u{1F33E}',
+  melon: '\u{1F349}',
+  pepper: '\u{1F336}',
+  icecream: '\u{1F366}',
+};
+
 /** Where a splat stuck. It is drawn relative to whatever it landed on. */
 export type Anchor =
   | { kind: 'prop'; id: number }
@@ -73,6 +90,12 @@ export interface Hud {
   flash: Map<number, number>;
   /** Slots knocked off, and how far they have fallen. */
   falling: Map<number, number>;
+  /** How far a bird has been knocked back, and how it is tumbling. */
+  recoil: Map<number, { x: number; y: number; spin: number }>;
+  /** The bird is swallowing: 0 just started, 1 done. */
+  chewing: { slot: number; food: FoodId; t: number } | null;
+  /** A shot is loaded and sitting on the ledge, ready to be thrown. */
+  loaded: FoodId | null;
   wind: number;
   time: number;
 }
@@ -206,6 +229,8 @@ export class View {
       if (!bird.alive && fall <= 0) continue;
       const windup = bird.slot === hud.you ? hud.power : 0;
       drawBird(ctx, bird, s, hud, fall, windup);
+      if (hud.chewing && hud.chewing.slot === bird.slot) drawChew(ctx, bird, hud.chewing);
+      if (bird.slot === hud.you && hud.loaded && hud.power === 0) drawLoaded(ctx, bird, hud.time);
     }
     for (const bird of s.birds) {
       if (!bird.alive) continue;
@@ -446,8 +471,10 @@ function drawBird(
   // Blinks are the cheapest thing that makes a drawn animal look alive.
   const blink = (hud.time * 0.7 + bird.slot * 2.3) % 4 > 3.88;
 
+  const kick = hud.recoil.get(bird.slot);
   ctx.save();
-  ctx.translate(bird.x, bird.y + bob + fall * fall * 2.2);
+  ctx.translate(bird.x + (kick?.x ?? 0), bird.y + bob + fall * fall * 2.2 + (kick?.y ?? 0));
+  if (kick) ctx.rotate(kick.spin);
   if (fall > 0) ctx.rotate(fall * 0.16);
   ctx.scale(facing, 1);
   // Winding up: the bird leans back as the throw is pulled, so the force in
@@ -482,6 +509,9 @@ function drawBird(
   ctx.quadraticCurveTo(-20, 9, -8, 5);
   ctx.closePath();
   ctx.fill();
+  ctx.strokeStyle = CONTOUR;
+  ctx.lineWidth = 1.8;
+  ctx.stroke();
   ctx.strokeStyle = 'rgba(20,24,30,0.45)';
   ctx.lineWidth = 0.9;
   for (let i = 0; i < 3; i++) {
@@ -491,22 +521,28 @@ function drawBird(
     ctx.stroke();
   }
 
-  let g = ctx.createRadialGradient(-6, -9, 2, 0, 0, 25);
+  // The gradient has to reach the dark tone by the time it reaches the edge.
+  // Run out to 25 on an 18-wide body and the rim never darkens, so the bird
+  // had no edge at all and read as translucent.
+  let g = ctx.createRadialGradient(-6, -9, 2, 0, 0, 19);
   g.addColorStop(0, tint[0]);
   g.addColorStop(1, tint[1]);
   ctx.fillStyle = g;
   ctx.beginPath();
   ctx.ellipse(0, 0, 18, 13, -0.1, 0, TAU);
   ctx.fill();
+  ctx.strokeStyle = CONTOUR;
+  ctx.lineWidth = 2;
+  ctx.stroke();
 
   // Pale breast catching the light from the left.
-  ctx.globalAlpha = 0.5;
-  g = ctx.createRadialGradient(6, 2, 1, 8, 3, 13);
+  ctx.globalAlpha = 0.32;
+  g = ctx.createRadialGradient(7, 3, 1, 8, 4, 9);
   g.addColorStop(0, '#e8e2d6');
   g.addColorStop(1, 'rgba(232,226,214,0)');
   ctx.fillStyle = g;
   ctx.beginPath();
-  ctx.ellipse(7, 3, 11, 9, 0, 0, TAU);
+  ctx.ellipse(8, 4, 8, 6.5, 0, 0, TAU);
   ctx.fill();
   ctx.globalAlpha = 1;
 
@@ -543,6 +579,9 @@ function drawBird(
   ctx.beginPath();
   ctx.ellipse(11, -11.5, 9.6, 9, -0.1, 0, TAU);
   ctx.fill();
+  ctx.strokeStyle = CONTOUR;
+  ctx.lineWidth = 2;
+  ctx.stroke();
 
   // The neck is where a pigeon is actually iridescent, so it carries the one
   // saturated colour on the whole bird.
@@ -586,10 +625,10 @@ function drawBird(
     ctx.fill();
   }
 
-  ctx.strokeStyle = 'rgba(255,244,220,0.42)';
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(255,244,220,0.3)';
+  ctx.lineWidth = 1.4;
   ctx.beginPath();
-  ctx.ellipse(-1, -1.5, 18, 13, -0.1, Math.PI * 1.05, Math.PI * 1.85);
+  ctx.ellipse(-1.5, -2, 17, 12, -0.1, Math.PI * 1.15, Math.PI * 1.7);
   ctx.stroke();
 
   // Whatever has been thrown at this bird stays on it for the rest of the match.
@@ -849,4 +888,65 @@ function round(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h
   ctx.lineTo(x, y + rad);
   ctx.arcTo(x, y, x + rad, y, rad);
   ctx.closePath();
+}
+
+/**
+ * Eating, so the loop can be watched instead of explained.
+ *
+ * The food goes to the beak, the head tips back to swallow, and the belly
+ * bulges on the way down. What comes out the other end is the shot.
+ */
+function drawChew(ctx: CanvasRenderingContext2D, bird: Bird, chew: { food: FoodId; t: number }): void {
+  const glyph = FOOD_GLYPH[chew.food];
+  const t = chew.t;
+  ctx.save();
+  ctx.translate(bird.x, bird.y);
+  if (t < 0.55) {
+    // Rising to the beak.
+    const k = t / 0.55;
+    const x = 26 - 12 * k;
+    const y = 6 - 26 * k - Math.sin(k * Math.PI) * 9;
+    ctx.font = '15px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.globalAlpha = 1 - Math.max(0, (k - 0.82) / 0.18);
+    ctx.fillText(glyph, x, y);
+  } else {
+    // Down it goes: a lump travelling from the throat to the belly.
+    const k = (t - 0.55) / 0.45;
+    ctx.fillStyle = 'rgba(30,36,44,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(9 - 9 * k, -8 + 12 * k, 4.5 + k * 1.6, 3.6 + k * 1.4, 0, 0, TAU);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** The loaded shot, waiting on the ledge to be thrown. */
+function drawLoaded(ctx: CanvasRenderingContext2D, bird: Bird, time: number): void {
+  ctx.save();
+  ctx.translate(bird.x - 20, bird.y + 12 + Math.sin(time * 3) * 0.8);
+  ctx.fillStyle = 'rgba(25,30,36,0.25)';
+  ctx.beginPath();
+  ctx.ellipse(1, 6, 8, 2.4, 0, 0, TAU);
+  ctx.fill();
+  const g = ctx.createRadialGradient(-2, -3, 1, 0, 0, 9);
+  g.addColorStop(0, '#c0925a');
+  g.addColorStop(1, '#5f3d1c');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.ellipse(0, 1, 7, 5, 0, 0, TAU);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(0.8, -3.4, 4.6, 3.4, 0, 0, TAU);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(1.4, -6.6, 2.6, 2, 0, 0, TAU);
+  ctx.fill();
+  ctx.strokeStyle = CONTOUR;
+  ctx.lineWidth = 1.3;
+  ctx.beginPath();
+  ctx.ellipse(0, 1, 7, 5, 0, 0, TAU);
+  ctx.stroke();
+  ctx.restore();
 }
