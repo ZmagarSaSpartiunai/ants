@@ -90,8 +90,8 @@ export interface Hud {
   flash: Map<number, number>;
   /** Slots knocked off, and how far they have fallen. */
   falling: Map<number, number>;
-  /** How far a bird has been knocked back, and how it is tumbling. */
-  recoil: Map<number, { x: number; y: number; spin: number }>;
+  /** Birds currently off their perch after a hit, and how they are getting back. */
+  tumble: Map<number, Tumble>;
   /** The bird is swallowing: 0 just started, 1 done. */
   chewing: { slot: number; food: FoodId; t: number } | null;
   /** A shot is loaded and sitting on the ledge, ready to be thrown. */
@@ -123,6 +123,29 @@ const SEAT_TINT: [string, string][] = [
  * be told where it ends.
  */
 const PREVIEW_STEPS = 62;
+
+/**
+ * A bird knocked off its perch.
+ *
+ * Purely how it looks: the bird's real position never moves, so the rules and
+ * every replay stay exactly as they were. The next round is held until every
+ * bird is home again, so no shot is ever fired at a bird that is not where the
+ * simulation says it is.
+ */
+export interface Tumble {
+  phase: 'fall' | 'sprawl' | 'walk' | 'hop';
+  /** Offset from the perch, in world units. */
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  spin: number;
+  spinV: number;
+  /** Seconds spent in the current phase. */
+  t: number;
+  /** Which way it was thrown, so it gets up facing the right way. */
+  dir: number;
+}
 
 interface Leaf {
   x: number;
@@ -234,7 +257,8 @@ export class View {
     }
     for (const bird of s.birds) {
       if (!bird.alive) continue;
-      drawHealth(ctx, bird, hud.shown[bird.slot] ?? bird.hp, bird.slot === hud.you);
+      const knock = hud.tumble.get(bird.slot);
+      drawHealth(ctx, bird, hud.shown[bird.slot] ?? bird.hp, bird.slot === hud.you, knock);
     }
 
     if (hud.preview) drawGhostArc(ctx, hud.preview);
@@ -471,33 +495,43 @@ function drawBird(
   // Blinks are the cheapest thing that makes a drawn animal look alive.
   const blink = (hud.time * 0.7 + bird.slot * 2.3) % 4 > 3.88;
 
-  const kick = hud.recoil.get(bird.slot);
+  const knock = hud.tumble.get(bird.slot);
+  // A bird on the ground has stopped bobbing, and a bird walking bobs with its
+  // stride instead.
+  const sway = knock ? (knock.phase === 'walk' ? Math.abs(Math.sin(knock.t * 11)) * 1.4 : 0) : bob;
   ctx.save();
-  ctx.translate(bird.x + (kick?.x ?? 0), bird.y + bob + fall * fall * 2.2 + (kick?.y ?? 0));
-  if (kick) ctx.rotate(kick.spin);
+  ctx.translate(bird.x + (knock?.x ?? 0), bird.y + sway + fall * fall * 2.2 + (knock?.y ?? 0));
+  if (knock) ctx.rotate(knock.spin);
   if (fall > 0) ctx.rotate(fall * 0.16);
+  if (knock && knock.phase === 'walk') facing = knock.x > 0 ? -1 : 1;
   ctx.scale(facing, 1);
   // Winding up: the bird leans back as the throw is pulled, so the force in
   // your finger shows on the bird itself and not only on a gauge.
   if (windup > 0) ctx.rotate(-windup * 0.3);
 
-  ctx.fillStyle = 'rgba(25,30,36,0.28)';
-  ctx.beginPath();
-  ctx.ellipse(3, 16, 15, 4, 0, 0, TAU);
-  ctx.fill();
+  const airborne = !!knock && (knock.phase === 'fall' || knock.phase === 'hop');
+  if (!airborne) {
+    ctx.fillStyle = 'rgba(25,30,36,0.28)';
+    ctx.beginPath();
+    ctx.ellipse(3, 16, 15, 4, 0, 0, TAU);
+    ctx.fill();
+  }
 
-  // Feet gripping the ledge: toes forward and one back, not two sticks.
+  // Feet gripping the ledge: toes forward and one back, not two sticks. While
+  // walking they alternate, which is the whole reason a waddle reads as one.
+  const stride = knock && knock.phase === 'walk' ? Math.sin(knock.t * 11) * 3.2 : 0;
   ctx.strokeStyle = '#c9803a';
   ctx.lineWidth = 2.1;
   ctx.lineCap = 'round';
-  for (const legX of [-3, 4]) {
+  const legs: [number, number][] = [[-3, stride], [4, -stride]];
+  for (const [legX, swing] of legs) {
     ctx.beginPath();
     ctx.moveTo(legX, 7);
-    ctx.lineTo(legX + 1, 14);
-    ctx.moveTo(legX + 1, 14);
-    ctx.lineTo(legX + 5, 15.5);
-    ctx.moveTo(legX + 1, 14);
-    ctx.lineTo(legX - 3, 15.5);
+    ctx.lineTo(legX + 1 + swing, 14);
+    ctx.moveTo(legX + 1 + swing, 14);
+    ctx.lineTo(legX + 5 + swing, 15.5);
+    ctx.moveTo(legX + 1 + swing, 14);
+    ctx.lineTo(legX - 3 + swing, 15.5);
     ctx.stroke();
   }
 
@@ -665,6 +699,38 @@ function drawBird(
     ctx.restore();
   }
 
+  if (airborne) {
+    // One wing thrown out, flapping. A bird falling with its wings folded looks
+    // like a thrown rock, not like a bird.
+    const flap = Math.sin((knock as Tumble).t * 22) * 0.55;
+    ctx.save();
+    ctx.translate(-1, -3);
+    ctx.rotate(-0.5 + flap);
+    const wg = ctx.createLinearGradient(0, 0, -4, 16);
+    wg.addColorStop(0, tint[0]);
+    wg.addColorStop(1, tint[1]);
+    ctx.fillStyle = wg;
+    ctx.beginPath();
+    ctx.ellipse(-8, 2, 15, 6, -0.5, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = CONTOUR;
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  if (knock && knock.phase === 'sprawl') {
+    // Seeing stars, in the oldest cartoon shorthand there is.
+    ctx.save();
+    ctx.scale(facing, 1);
+    ctx.fillStyle = '#ffd96b';
+    for (let i = 0; i < 3; i++) {
+      const a = knock.t * 4 + (i * TAU) / 3;
+      star(ctx, Math.cos(a) * 13, -20 + Math.sin(a) * 4, 3.2);
+    }
+    ctx.restore();
+  }
+
   if (flash > 0) {
     ctx.globalAlpha = flash * 0.7;
     ctx.fillStyle = '#fff0f0';
@@ -676,10 +742,19 @@ function drawBird(
   ctx.restore();
 }
 
-function drawHealth(ctx: CanvasRenderingContext2D, bird: Bird, shown: number, mine: boolean): void {
+function drawHealth(
+  ctx: CanvasRenderingContext2D,
+  bird: Bird,
+  shown: number,
+  mine: boolean,
+  knock: Tumble | undefined,
+): void {
   const w = 46;
-  const x = bird.x - w / 2;
-  const y = bird.y - 40;
+  // It follows the bird: left at the perch it would hang over nothing while its
+  // owner was picking itself up off the pavement.
+  const cx = bird.x + (knock?.x ?? 0);
+  const x = cx - w / 2;
+  const y = bird.y + (knock?.y ?? 0) - 40;
   const part = Math.max(0, Math.min(1, shown / START_HP));
   const real = Math.max(0, Math.min(1, bird.hp / START_HP));
 
@@ -709,9 +784,9 @@ function drawHealth(ctx: CanvasRenderingContext2D, bird: Bird, shown: number, mi
     // a child has to be told; anything less and they have to guess.
     ctx.fillStyle = '#ffd96b';
     ctx.beginPath();
-    ctx.moveTo(bird.x, y - 5);
-    ctx.lineTo(bird.x - 5, y - 12);
-    ctx.lineTo(bird.x + 5, y - 12);
+    ctx.moveTo(cx, y - 5);
+    ctx.lineTo(cx - 5, y - 12);
+    ctx.lineTo(cx + 5, y - 12);
     ctx.closePath();
     ctx.fill();
   }
@@ -872,6 +947,21 @@ function drawDecal(ctx: CanvasRenderingContext2D, decal: Decal, s: MatchState, t
     ctx.fill();
   }
   ctx.restore();
+}
+
+/** A five-pointed star, for the one thing every child already reads as dazed. */
+function star(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number): void {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = (i / 10) * TAU - Math.PI / 2;
+    const rad = i % 2 ? r * 0.45 : r;
+    const x = cx + Math.cos(a) * rad;
+    const y = cy + Math.sin(a) * rad;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
 }
 
 /** Older phone browsers still trip over ctx.roundRect, so the path is drawn. */

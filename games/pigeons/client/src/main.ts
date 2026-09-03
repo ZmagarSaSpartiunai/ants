@@ -1,5 +1,6 @@
 import {
   Bot,
+  GROUND_Y,
   FOODS,
   FOOD_IDS,
   Flight,
@@ -13,7 +14,7 @@ import {
   resolveRound,
   windFor,
 } from '@pigeons/shared';
-import { Decal, Fleck, FOOD_TINT, Hud, View } from './render.js';
+import { Decal, Fleck, FOOD_TINT, Hud, Tumble, View } from './render.js';
 import './style.css';
 
 /**
@@ -83,12 +84,14 @@ class Game {
   /** Counts down while the player is digesting and cannot fire. */
   private waitFor = 0;
   /**
-   * Knocked back by a hit, and springing home.
+   * Birds knocked off their perch, picking themselves up.
    *
    * Purely how it looks: the bird's real position never moves, so the rules and
-   * every replay stay exactly as they were.
+   * every replay stay exactly as they were. The next round waits for this map
+   * to empty, so nothing is ever thrown at a bird that is not standing where
+   * the simulation believes it is.
    */
-  private recoil = new Map<number, { x: number; y: number; vx: number; vy: number; spin: number; spinV: number }>();
+  private tumble = new Map<number, Tumble>();
   /** The bird is swallowing what was picked. */
   private chewing: { slot: number; food: FoodId; t: number } | null = null;
   /** What has come out the other end and is ready to throw. */
@@ -130,7 +133,7 @@ class Game {
     this.decals = [];
     this.flecks = [];
     this.shown = this.state.birds.map((b) => b.hp);
-    this.recoil.clear();
+    this.tumble.clear();
     this.loaded = null;
     this.chewing = { slot: YOU, food: 'seed', t: 0 };
     this.flash.clear();
@@ -357,14 +360,21 @@ class Game {
       const len = Math.hypot(ax, ay) || 1;
       // Measured against the bird: the first attempt lifted it about twelve
       // pixels, which registers but does not read as being knocked off.
-      const push = Math.min(40, 8 + this.damage[i] * 0.7);
-      this.recoil.set(i, {
+      // Thrown clean off the ledge, not nudged. A knock that leaves the bird
+      // standing where it was reads as nothing much having happened.
+      if (!bird.alive) continue;
+      const push = Math.min(46, 14 + this.damage[i] * 0.8);
+      const dir = ax >= 0 ? 1 : -1;
+      this.tumble.set(i, {
+        phase: 'fall',
         x: 0,
         y: 0,
-        vx: (ax / len) * push * 5,
-        vy: (ay / len) * push * 5 - 44,
+        vx: (ax / len) * push * 3.4,
+        vy: (ay / len) * push * 2 - 110,
         spin: 0,
-        spinV: (ax >= 0 ? 1 : -1) * 7,
+        spinV: dir * 9,
+        t: 0,
+        dir,
       });
     }
     for (const bird of this.state.birds) {
@@ -411,18 +421,45 @@ class Game {
       }
     }
 
-    // A spring, not a slide: it snaps back past the mark and settles, which is
-    // what makes a knock read as a knock.
-    for (const [slot, k] of this.recoil) {
-      // Softer spring, bigger swing: the bird is thrown clear and then hauled
-      // back to its perch, rather than twitching in place.
-      k.vx += (-42 * k.x - 6 * k.vx) * dt;
-      k.vy += (-42 * k.y - 6 * k.vy) * dt;
-      k.spinV += (-42 * k.spin - 6 * k.spinV) * dt;
-      k.x += k.vx * dt;
-      k.y += k.vy * dt;
-      k.spin += k.spinV * dt;
-      if (Math.abs(k.x) < 0.15 && Math.abs(k.y) < 0.15 && Math.abs(k.vx) < 0.6) this.recoil.delete(slot);
+    for (const [slot, k] of this.tumble) {
+      const bird = this.state.birds[slot];
+      // How far the pavement is below this bird's own perch.
+      const drop = GROUND_Y - 14 - bird.y;
+      k.t += dt;
+      if (k.phase === 'fall') {
+        k.vy += 900 * dt;
+        k.x += k.vx * dt;
+        k.y += k.vy * dt;
+        k.spin += k.spinV * dt;
+        if (k.y >= drop) {
+          k.y = drop;
+          k.phase = 'sprawl';
+          k.t = 0;
+          // Lands on its side, thrown the way it was hit.
+          k.spin = k.dir * (Math.PI / 2) * 0.85;
+        }
+      } else if (k.phase === 'sprawl') {
+        if (k.t > 0.5) {
+          k.phase = 'walk';
+          k.t = 0;
+        }
+      } else if (k.phase === 'walk') {
+        // Back on its feet, then a waddle home along the pavement.
+        k.spin += (0 - k.spin) * Math.min(1, dt * 9);
+        const step = 120 * dt;
+        k.x += Math.sign(-k.x) * Math.min(step, Math.abs(k.x));
+        if (Math.abs(k.x) < 0.6) {
+          k.x = 0;
+          k.phase = 'hop';
+          k.t = 0;
+          // Just enough to clear the ledge and land on it.
+          k.vy = -Math.sqrt(2 * 900 * (drop + 34));
+        }
+      } else {
+        k.vy += 900 * dt;
+        k.y += k.vy * dt;
+        if (k.y <= 0) this.tumble.delete(slot);
+      }
     }
     for (let i = this.flecks.length - 1; i >= 0; i--) {
       const f = this.flecks[i];
@@ -462,7 +499,7 @@ class Game {
       if (this.waitFor <= 0) this.fire(null);
     } else if (this.phase === 'settle') {
       this.settleFor -= dt;
-      if (this.settleFor <= 0) {
+      if (this.settleFor <= 0 && this.tumble.size === 0) {
         this.flights = [];
         if (this.state.over) this.finish();
         else {
@@ -485,7 +522,7 @@ class Game {
       shown: this.shown,
       flash: this.flash,
       falling: this.falling,
-      recoil: this.recoil,
+      tumble: this.tumble,
       chewing: this.chewing,
       loaded: this.loaded,
       wind: windFor(this.state.seed, this.state.round),
