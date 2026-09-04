@@ -37,6 +37,7 @@ const look: Look = {
   lean: 0,
   booms: new Map(),
   cheers: new Map(),
+  arrivals: new Map(),
 };
 
 function point(clientX: number): void {
@@ -65,6 +66,7 @@ againBtn.addEventListener('click', () => {
   look.flies.length = 0;
   look.booms.clear();
   look.cheers.clear();
+  look.arrivals.clear();
   donePanel.hidden = true;
   running = true;
 });
@@ -144,9 +146,9 @@ function frame(now: number): void {
         burst(SEATS[event.seat].x, SEATS[event.seat].y, 34, '#a9713c');
       } else if (event.t === 'full') {
         full();
-      } else if (event.t === 'overflow') {
-        splat();
-        burst(event.x, FLOOR_Y - 20, 10, '#a9713c');
+      } else if (event.t === 'wake') {
+        look.arrivals.set(event.seat, 0);
+        chime();
       } else if (event.t === 'flush') {
         flush();
       } else if (event.t === 'over') {
@@ -177,6 +179,11 @@ function frame(now: number): void {
     const nextT = t + dt / 0.8;
     if (nextT >= 1) look.cheers.delete(seat);
     else look.cheers.set(seat, nextT);
+  }
+  for (const [seat, t] of look.arrivals) {
+    const nextT = t + dt / 0.6;
+    if (nextT >= 1) look.arrivals.delete(seat);
+    else look.arrivals.set(seat, nextT);
   }
   // The lean is taken from how far the potty actually travelled, so it can
   // never disagree with the movement the eye is watching.

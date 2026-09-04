@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGame, happyCount, step } from './sim.js';
+import { castFor, createGame, fits, happyCount, jammed, step } from './sim.js';
 import {
+  AnimalId,
+  BIG,
   Event,
   FIELD_W,
   FLOOR_Y,
@@ -10,7 +12,11 @@ import {
   POTTY_W,
   PottyState,
   POUR_X,
+  MIDDLING,
   SEATS,
+  SIZE,
+  SMALL,
+  START_AWAKE,
   STRIKES,
   TOILET_X,
   WAIT,
@@ -28,10 +34,14 @@ function play(s: PottyState, seconds: number, aim: (s: PottyState) => number): E
 
 /** A player who helps whoever is asking, and empties the potty when it is full. */
 function helper(s: PottyState): number {
-  if (s.held >= POTTY_CAP) return TOILET_X;
+  // Stays put while something is still falling: driving off the moment an
+  // animal lets go wastes the trip, and now costs it a strike as well.
+  if (s.drops.length) return SEATS[s.drops[0].seat].x;
   const asking = s.animals.find((a) => a.urge !== null);
+  if (!asking) return s.pottyX;
+  if (!fits(s, asking)) return TOILET_X;
 
-  return asking ? SEATS[asking.seat].x : s.pottyX;
+  return SEATS[asking.seat].x;
 }
 
 // ------------------------------------------------------------------ the ask
@@ -138,10 +148,12 @@ test('the game ends once every animal is either happy or gone', () => {
     const s = createGame(seed);
     // Helps only the two on the left; the right pair is left to burst.
     play(s, 300, (g) => {
-      if (g.held >= POTTY_CAP) return TOILET_X;
-      const asking = g.animals.find((a) => a.urge !== null && a.seat < 2);
+      if (g.drops.length) return SEATS[g.drops[0].seat].x;
+      const asking = g.animals.find((a) => a.urge !== null && !a.asleep && a.seat < 2);
+      if (!asking) return g.pottyX;
+      if (!fits(g, asking)) return TOILET_X;
 
-      return asking ? SEATS[asking.seat].x : g.pottyX;
+      return SEATS[asking.seat].x;
     });
 
     assert.ok(s.over !== null, `seed ${seed} never ended`);
@@ -226,4 +238,142 @@ test('the same seed plays out the same way twice', () => {
   assert.deepEqual(a.animals, b.animals);
   assert.equal(a.caught, b.caught);
   assert.deepEqual(a.splats, b.splats);
+});
+
+// ------------------------------------------------------------------ the cast
+
+test('the cast is two small, one middling and one big', () => {
+  // A straight shuffle can deal a cow, a pig and a sheep together, and then
+  // the potty is full after every animal and the game is a queue at the loo.
+  for (let seed = 0; seed < 40; seed++) {
+    const { cast } = castFor(seed * 7919);
+    const small = cast.filter((c: AnimalId) => SMALL.includes(c)).length;
+    const mid = cast.filter((c: AnimalId) => MIDDLING.includes(c)).length;
+    const big = cast.filter((c: AnimalId) => BIG.includes(c)).length;
+
+    assert.equal(cast.length, 4);
+    assert.equal(new Set(cast).size, 4, `seed ${seed} dealt a duplicate: ${cast.join()}`);
+    assert.equal(small, 2, `seed ${seed}: ${cast.join()}`);
+    assert.equal(mid, 1, `seed ${seed}: ${cast.join()}`);
+    assert.equal(big, 1, `seed ${seed}: ${cast.join()}`);
+  }
+});
+
+test('the cast actually varies, and so does who sits where', () => {
+  const casts = new Set<string>();
+  const bigSeats = new Set<number>();
+  for (let seed = 0; seed < 60; seed++) {
+    const { cast } = castFor(seed * 104729);
+    casts.add(cast.join());
+    bigSeats.add(cast.findIndex((c: AnimalId) => BIG.includes(c)));
+  }
+
+  assert.ok(casts.size > 8, `only ${casts.size} different casts in sixty games`);
+  assert.ok(bigSeats.size > 2, 'the big animal always sits in the same place');
+});
+
+test('the whole potty is one cow, and a hamster is a tenth of it', () => {
+  assert.equal(SIZE.cow, POTTY_CAP);
+  assert.equal(SIZE.hamster, POTTY_CAP / 10);
+});
+
+// -------------------------------------------------------------- how it fills
+
+test('an animal will not go if what it makes does not fit', () => {
+  const s = createGame(4);
+  const a = s.animals.find((x) => !x.asleep)!;
+  s.held = POTTY_CAP - a.size + 1;
+  a.urge = 3;
+  const events = play(s, 1, () => SEATS[a.seat].x);
+
+  assert.ok(!events.some((e) => e.t === 'drop'), 'it squeezed in where there was no room');
+  assert.ok(jammed(s), 'the game should know somebody is stuck');
+});
+
+test('the same animal goes once there is room again', () => {
+  const s = createGame(4);
+  const a = s.animals.find((x) => !x.asleep)!;
+  s.held = POTTY_CAP;
+  a.urge = 5;
+  play(s, 0.5, () => SEATS[a.seat].x);
+  s.held = 0;
+  const events = play(s, 1, () => SEATS[a.seat].x);
+
+  assert.ok(events.some((e) => e.t === 'drop'), 'it never went even with an empty pot');
+});
+
+test('the potty can be emptied at any time, not only when it is exactly full', () => {
+  // Half a pot and a cow asking is a dead end if only a full pot may be poured.
+  const s = createGame(4);
+  s.held = 3;
+  const events = play(s, 3, () => TOILET_X);
+
+  assert.ok(events.some((e) => e.t === 'flush'), 'a part-full potty refused to empty');
+  assert.equal(s.held, 0);
+});
+
+test('a fuller potty is a slower potty, all the way up', () => {
+  const light = createGame(1);
+  const heavy = createGame(1);
+  light.held = 2;
+  heavy.held = POTTY_CAP;
+  for (let i = 0; i < 20; i++) {
+    step(light, DT, FIELD_W);
+    step(heavy, DT, FIELD_W);
+  }
+
+  assert.ok(heavy.pottyX < light.pottyX - 5, 'weight made no difference');
+});
+
+// ------------------------------------------------------------- who is there
+
+test('only two animals are on the fence to begin with', () => {
+  const s = createGame(4);
+
+  assert.equal(s.animals.filter((a) => !a.asleep).length, START_AWAKE);
+});
+
+test('emptying the potty brings the next animal along', () => {
+  const s = createGame(4);
+  s.held = POTTY_CAP;
+  const events = play(s, 4, () => TOILET_X);
+
+  assert.ok(events.some((e) => e.t === 'wake'), 'nobody arrived after a flush');
+  assert.equal(s.animals.filter((a) => !a.asleep).length, START_AWAKE + 1);
+});
+
+test('a sleeping animal never asks and never takes a strike', () => {
+  const s = createGame(4);
+  const asleep = s.animals.filter((a) => a.asleep).map((a) => a.seat);
+  play(s, 30, () => 0);
+  for (const seat of asleep) {
+    const a = s.animals[seat];
+    if (a.asleep) assert.equal(a.strikes, 0, `seat ${seat} was punished in its sleep`);
+  }
+});
+
+test('everybody gets onto the fence even if the potty is never emptied', () => {
+  // Otherwise the two who are out burst, the other two never arrive, and the
+  // game sits there for ever with an empty fence.
+  const s = createGame(4);
+  play(s, 300, () => 0);
+
+  assert.equal(s.over, 'lost');
+  assert.ok(s.animals.every((a) => !a.asleep), 'somebody was left asleep for ever');
+  assert.ok(s.animals.every((a) => !a.alive));
+});
+
+test('driving off after making somebody go costs a strike too', () => {
+  // Otherwise the potty could pull away every time and the animal would go
+  // again and again with nothing ever counted against it -- the game would
+  // never end and nothing would ever look wrong.
+  const s = createGame(4);
+  const a = s.animals.find((x) => !x.asleep)!;
+  a.urge = 3;
+  play(s, 0.6, () => SEATS[a.seat].x);
+  assert.equal(s.drops.length, 1, 'it never let go');
+  const events = play(s, 3, () => 0);
+
+  assert.ok(events.some((e) => e.t === 'miss'), 'it did not land on the floor');
+  assert.equal(a.strikes, 1, 'a wasted trip cost nothing');
 });

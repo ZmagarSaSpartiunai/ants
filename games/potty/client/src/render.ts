@@ -1,7 +1,6 @@
 import {
   Animal,
   AnimalId,
-  ANIMALS,
   Drop,
   FIELD_H,
   FIELD_W,
@@ -12,7 +11,9 @@ import {
   POTTY_W,
   PottyState,
   SEATS,
+  SIZE,
   Splat,
+  STRIKES,
   TOILET_W,
   TOILET_X,
   WAIT,
@@ -36,11 +37,27 @@ const CONTOUR = 'rgba(58,40,32,0.8)';
 
 /** Body, shade, and the one bright accent, per animal. */
 const COAT: Record<AnimalId, [string, string, string]> = {
+  hamster: ['#e8c48a', '#bd965e', '#f6dcc0'],
+  bird: ['#f5cf5c', '#c9a032', '#e8863c'],
   cat: ['#b9bec6', '#7d838d', '#f2b8c6'],
+  dog: ['#c98f5d', '#96633a', '#3a3129'],
+  sheep: ['#f2eee6', '#cdc6bb', '#4a4038'],
   pig: ['#f2b1bd', '#cf8090', '#ffe0e6'],
   cow: ['#f4efe6', '#c9c0b2', '#3a3129'],
-  bird: ['#f5cf5c', '#c9a032', '#e8863c'],
 };
+
+/**
+ * How big the animal is drawn.
+ *
+ * A cow that makes ten times a hamster's should look like it. Tying the two
+ * together means the child can guess what will fit before finding out.
+ *
+ * @param size how much it produces
+ * @return a scale for the whole animal
+ */
+function bodyScale(size: number): number {
+  return 0.74 + size * 0.04;
+}
 
 export interface Sparkle {
   x: number;
@@ -63,6 +80,8 @@ export interface Look {
   time: number;
   /** Seats that have just burst, and how long ago. */
   booms: Map<number, number>;
+  /** Seats that have just arrived, 0 rising to 1. */
+  arrivals: Map<number, number>;
   /** Seats that have just had their fifth, and how long ago. */
   cheers: Map<number, number>;
   /** How hard the potty is celebrating, 1 fading to 0. */
@@ -133,16 +152,17 @@ export class View {
 
     for (const a of s.animals) {
       const boom = look.booms.get(a.seat);
-      if (a.alive) {
-        drawAnimal(ctx, ANIMALS[a.seat % ANIMALS.length], SEATS[a.seat], a, look.time, look.cheers.get(a.seat));
-      }
+      if (a.asleep) continue;
+      const arriving = look.arrivals.get(a.seat);
+      if (a.alive) drawAnimal(ctx, SEATS[a.seat], a, look.time, look.cheers.get(a.seat), arriving);
       drawProgress(ctx, SEATS[a.seat], a);
       if (a.alive && a.urge !== null) drawAsk(ctx, SEATS[a.seat], a, look.time);
       if (boom !== undefined) drawBoom(ctx, SEATS[a.seat], boom);
     }
 
-    for (const drop of s.drops) drawDrop(ctx, drop, look.time);
+    for (const drop of s.drops) drawDrop(ctx, drop, s.animals[drop.seat].size, look.time);
     drawPotty(ctx, s, look);
+    drawGauge(ctx, s);
     if (s.flushing > 0) drawPour(ctx, s, look.time);
     for (const sp of look.sparkles) drawSparkle(ctx, sp);
     if (s.held > 0 && s.flushing <= 0) drawScore(ctx, s.held, look.pop);
@@ -267,12 +287,13 @@ function bakeRoom(): HTMLCanvasElement {
  */
 function drawAnimal(
   ctx: CanvasRenderingContext2D,
-  id: AnimalId,
   seat: { x: number; y: number },
   a: Animal,
   time: number,
   cheer?: number,
+  arriving?: number,
 ): void {
+  const id = a.id;
   const coat = COAT[id];
   const slot = a.seat;
   // How desperate it is: nothing at all until it asks, then rising as its own
@@ -285,6 +306,15 @@ function drawAnimal(
 
   ctx.save();
   ctx.translate(seat.x + shake, seat.y + push * 4 + breathe);
+  if (arriving !== undefined && arriving < 1) {
+    // Drops onto its post and overshoots: an animal that simply appears is a
+    // change the child finds already made rather than something that happened.
+    const ease = 1 - Math.pow(1 - arriving, 3);
+    ctx.translate(0, -120 * (1 - ease));
+    const squash = 1 + Math.sin(arriving * Math.PI * 2.4) * 0.2 * (1 - arriving);
+    ctx.scale(squash, 2 - squash);
+  }
+  ctx.scale(bodyScale(a.size), bodyScale(a.size));
   if (cheer !== undefined && cheer < 1) {
     // Its fifth: it hops. A goal reached with no reaction is not a goal.
     ctx.translate(0, -Math.abs(Math.sin(cheer * Math.PI * 2)) * 16);
@@ -312,12 +342,25 @@ function drawAnimal(
   body.addColorStop(0, coat[0]);
   body.addColorStop(1, coat[1]);
   ctx.fillStyle = body;
-  ctx.beginPath();
-  ctx.ellipse(0, 4, 26, 22, 0, 0, TAU);
-  ctx.fill();
-  ctx.strokeStyle = CONTOUR;
-  ctx.lineWidth = 2.4;
-  ctx.stroke();
+  if (id === 'sheep') {
+    // A ring of bumps instead of an outline: fleece, in one shape.
+    ctx.beginPath();
+    for (let i = 0; i <= 11; i++) {
+      const ang = (i / 11) * TAU;
+      ctx.arc(Math.cos(ang) * 22, 4 + Math.sin(ang) * 18, 8, 0, TAU);
+    }
+    ctx.fill();
+    ctx.strokeStyle = CONTOUR;
+    ctx.lineWidth = 2.2;
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    ctx.ellipse(0, 4, 26, 22, 0, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = CONTOUR;
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+  }
 
   // Feet dangling off the rail.
   ctx.strokeStyle = coat[1];
@@ -334,29 +377,73 @@ function drawAnimal(
 }
 
 /**
- * The five dots over each animal: how many times it has been.
+ * The band over each animal: green for what it has managed, red for what it
+ * has been denied.
  *
- * The goal has to be visible on the animal it belongs to. A single counter
- * somewhere else tells a child who cannot read nothing about which animal is
- * nearly done and which has been ignored all game.
+ * Both counts on one bar, growing towards each other. A child scanning the
+ * fence has to be able to see in one glance who is nearly done and who is one
+ * failure from bursting -- and those are opposite ends of the same bar, so
+ * they belong on the same bar.
  *
  * @param ctx where to draw
  * @param seat where the animal sits
  * @param a the animal
  */
-function drawProgress(ctx: CanvasRenderingContext2D, seat: { x: number; y: number }, a: Animal): void {
-  const gap = 13;
-  const left = seat.x - ((GOAL - 1) * gap) / 2;
-  for (let i = 0; i < GOAL; i++) {
-    const got = i < a.pooped;
+function drawProgress(
+  ctx: CanvasRenderingContext2D,
+  seat: { x: number; y: number },
+  a: Animal,
+): void {
+  const w = 74;
+  const h = 11;
+  const x = seat.x - w / 2;
+  const y = seat.y - 50;
+  const dead = !a.alive;
+
+  ctx.save();
+  round(ctx, x, y, w, h, h / 2);
+  ctx.fillStyle = dead ? 'rgba(80,64,54,0.45)' : 'rgba(255,255,255,0.8)';
+  ctx.fill();
+
+  if (!dead) {
+    // Green from the left: how many times it has been.
+    const got = (a.pooped / GOAL) * w;
+    if (got > 0) {
+      ctx.save();
+      round(ctx, x, y, w, h, h / 2);
+      ctx.clip();
+      ctx.fillStyle = '#5eb84f';
+      ctx.fillRect(x, y, got, h);
+      ctx.restore();
+    }
+    // Red from the right: how close it is to bursting. It pulses on the last
+    // one, because that is the animal the child has to drop everything for.
+    const bad = (a.strikes / STRIKES) * w;
+    if (bad > 0) {
+      ctx.save();
+      round(ctx, x, y, w, h, h / 2);
+      ctx.clip();
+      ctx.fillStyle = a.strikes >= STRIKES - 1 ? '#ff4a3d' : '#e4574d';
+      ctx.fillRect(x + w - bad, y, bad, h);
+      ctx.restore();
+    }
+  }
+
+  ctx.strokeStyle = 'rgba(58,40,32,0.6)';
+  ctx.lineWidth = 2;
+  round(ctx, x, y, w, h, h / 2);
+  ctx.stroke();
+
+  // The five notches, so the green is countable and not just a length.
+  ctx.strokeStyle = 'rgba(58,40,32,0.28)';
+  ctx.lineWidth = 1.2;
+  for (let i = 1; i < GOAL; i++) {
     ctx.beginPath();
-    ctx.arc(left + i * gap, seat.y - 46, 5, 0, TAU);
-    ctx.fillStyle = !a.alive ? 'rgba(90,70,60,0.35)' : got ? '#7bc86c' : 'rgba(255,255,255,0.55)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(58,40,32,0.55)';
-    ctx.lineWidth = 1.6;
+    ctx.moveTo(x + (i * w) / GOAL, y + 2);
+    ctx.lineTo(x + (i * w) / GOAL, y + h - 2);
     ctx.stroke();
   }
+  ctx.restore();
 }
 
 /**
@@ -408,8 +495,10 @@ function drawAsk(
   ctx.stroke();
 
   ctx.save();
-  ctx.scale(0.62, 0.62);
-  poo(ctx, 1);
+  // Drawn at this animal's own size, so a cow's bubble warns you it needs an
+  // empty potty before it has even let go.
+  ctx.scale(0.6, 0.6);
+  poo(ctx, pooScale(a.size));
   ctx.restore();
   ctx.restore();
 }
@@ -489,6 +578,32 @@ function drawHead(
       ctx.fill();
       ctx.stroke();
     }
+  } else if (id === 'hamster') {
+    // Round ears set high and wide: the whole animal is meant to read as small.
+    for (const sx of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(sx * 13, -15, 7, 7, 0, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+    }
+  } else if (id === 'dog') {
+    // Ears hanging down past the jaw, which is most of what says dog.
+    for (const sx of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(sx * 12, -12);
+      ctx.quadraticCurveTo(sx * 25, -6, sx * 21, 12);
+      ctx.quadraticCurveTo(sx * 14, 8, sx * 12, -6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+  } else if (id === 'sheep') {
+    for (const sx of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(sx * 19, -6, 8, 4.5, sx * 0.5, 0, TAU);
+      ctx.fill();
+      ctx.stroke();
+    }
   }
 
   const head = ctx.createRadialGradient(-6, -8, 2, 0, 0, 22);
@@ -509,12 +624,23 @@ function drawHead(
     ctx.ellipse(-11, -6, 7, 5.5, -0.4, 0, TAU);
     ctx.fill();
   }
+  if (id === 'sheep') {
+    // A dark face inside the fleece, or it is a white blob with eyes.
+    ctx.fillStyle = coat[2];
+    ctx.beginPath();
+    ctx.ellipse(0, 1, 15, 14, 0, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = CONTOUR;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
 
   // Eyes: squeezed shut while bracing, which is the joke and also the warning.
   const shut = push > 0.45;
-  ctx.strokeStyle = '#3a3129';
+  const ink = id === 'sheep' ? '#f2eee6' : '#3a3129';
+  ctx.strokeStyle = ink;
   ctx.lineWidth = 2.4;
-  ctx.fillStyle = '#3a3129';
+  ctx.fillStyle = ink;
   for (const sx of [-1, 1]) {
     if (shut) {
       ctx.beginPath();
@@ -528,11 +654,11 @@ function drawHead(
       else ctx.ellipse(sx * 7, -3, 3.4, 3.8, 0, 0, TAU);
       ctx.fill();
       if (!blink) {
-        ctx.fillStyle = 'rgba(255,255,255,0.95)';
+        ctx.fillStyle = id === 'sheep' ? 'rgba(60,52,44,0.9)' : 'rgba(255,255,255,0.95)';
         ctx.beginPath();
         ctx.arc(sx * 7 - 1.3, -4.6, 1.3, 0, TAU);
         ctx.fill();
-        ctx.fillStyle = '#3a3129';
+        ctx.fillStyle = ink;
       }
     }
   }
@@ -550,7 +676,7 @@ function drawHead(
     ctx.lineWidth = 1.8;
     ctx.stroke();
   } else {
-    ctx.fillStyle = id === 'pig' ? coat[2] : 'rgba(255,255,255,0.55)';
+    ctx.fillStyle = id === 'pig' ? coat[2] : id === 'sheep' ? 'rgba(242,238,230,0.6)' : 'rgba(255,255,255,0.55)';
     ctx.beginPath();
     ctx.ellipse(0, 7, id === 'pig' ? 9 : 8, id === 'pig' ? 6.5 : 5.5, 0, 0, TAU);
     ctx.fill();
@@ -594,14 +720,58 @@ function drawHead(
   ctx.restore();
 }
 
-function drawDrop(ctx: CanvasRenderingContext2D, drop: Drop, time: number): void {
+function drawDrop(ctx: CanvasRenderingContext2D, drop: Drop, size: number, time: number): void {
   ctx.save();
   ctx.translate(drop.x, drop.y);
   // Stretched along the fall, which is how the eye tells fast from slow.
   const stretch = Math.min(0.4, drop.vy / 900);
   ctx.rotate(Math.sin(time * 6 + drop.id) * 0.12);
   ctx.scale(1 - stretch * 0.4, 1 + stretch);
-  poo(ctx, 1);
+  poo(ctx, pooScale(size));
+  ctx.restore();
+}
+
+/**
+ * @param size how much the animal produces
+ * @return how big to draw one of them
+ */
+export function pooScale(size: number): number {
+  return 0.42 + size * 0.083;
+}
+
+/**
+ * How full the potty is, in the same units the animals produce.
+ *
+ * Ten cells, countable, sitting over the potty and travelling with it. The
+ * heap over the rim says roughly; this says exactly, and exactly is what a
+ * child needs to work out whether the cow will fit.
+ *
+ * @param ctx where to draw
+ * @param s the game
+ */
+function drawGauge(ctx: CanvasRenderingContext2D, s: PottyState): void {
+  const cells = POTTY_CAP;
+  const w = 9;
+  const gap = 2;
+  const total = cells * w + (cells - 1) * gap;
+  // Right above the pot and travelling with it. Higher up it read as a piece
+  // of furniture rather than as this potty's own dial.
+  const x = Math.max(8, Math.min(FIELD_W - total - 8, s.pottyX - total / 2));
+  const y = FLOOR_Y - 84;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(20,50,64,0.35)';
+  round(ctx, x - 5, y - 4, total + 10, 20, 7);
+  ctx.fill();
+  for (let i = 0; i < cells; i++) {
+    const filled = i < s.held;
+    round(ctx, x + i * (w + gap), y, w, 12, 3);
+    ctx.fillStyle = filled ? '#a9713c' : 'rgba(255,255,255,0.75)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(20,50,64,0.55)';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+  }
   ctx.restore();
 }
 

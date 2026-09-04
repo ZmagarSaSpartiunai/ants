@@ -21,8 +21,14 @@ export const POTTY_SPEED = 620;
 export const DROP_R = 13;
 export const GRAVITY = 300;
 
-/** How many the potty holds before it has to be emptied. */
-export const POTTY_CAP = 4;
+/**
+ * How much the potty holds, measured in the same units the animals produce.
+ *
+ * Counting pieces was a lie: a cow and a hamster are not the same amount, and
+ * a child can see that they are not. Ten is small enough to count to and big
+ * enough that a cow fills the pot on its own.
+ */
+export const POTTY_CAP = 10;
 /** Where the toilet stands, and how wide its target is. */
 export const TOILET_X = 748;
 export const TOILET_W = 86;
@@ -56,12 +62,39 @@ export const SEATS: { x: number; y: number }[] = [
   { x: 690, y: 150 },
 ];
 
-export type AnimalId = 'cat' | 'pig' | 'cow' | 'bird';
+export type AnimalId = 'hamster' | 'bird' | 'cat' | 'dog' | 'sheep' | 'pig' | 'cow';
 
-export const ANIMALS: AnimalId[] = ['cat', 'pig', 'cow', 'bird'];
+/** How much each one produces, out of a potty that holds POTTY_CAP. */
+export const SIZE: Record<AnimalId, number> = {
+  hamster: 1,
+  bird: 2,
+  cat: 3,
+  dog: 4,
+  sheep: 5,
+  pig: 6,
+  cow: 10,
+};
+
+/**
+ * The cast is drawn from these three groups, two small, one middling and one
+ * big. A straight shuffle could deal a cow, a pig and a sheep together, and
+ * then the potty is full after every single animal and the game is a queue at
+ * the toilet.
+ */
+export const SMALL: AnimalId[] = ['hamster', 'bird', 'cat'];
+export const MIDDLING: AnimalId[] = ['dog', 'sheep'];
+export const BIG: AnimalId[] = ['pig', 'cow'];
+
+/** How many animals are on the fence when the game starts. */
+export const START_AWAKE = 2;
 
 export interface Animal {
   seat: number;
+  id: AnimalId;
+  /** How much it produces, out of POTTY_CAP. */
+  size: number;
+  /** Not on the fence yet. It arrives when the potty is emptied. */
+  asleep: boolean;
   /** How many have gone in the potty. At GOAL it is happy and stops asking. */
   pooped: number;
   /** How many times it has been left waiting. At STRIKES it bursts. */
@@ -98,7 +131,7 @@ export interface PottyState {
   animals: Animal[];
   caught: number;
   missed: number;
-  /** How many are in the potty right now. */
+  /** How much is in the potty right now, in the same units as SIZE. */
   held: number;
   /** Seconds left of emptying, or zero. */
   flushing: number;
@@ -115,18 +148,18 @@ export type Event =
   | { t: 'urge'; seat: number }
   /** The potty was underneath, so it let go. */
   | { t: 'drop'; seat: number; x: number }
-  /** Went in. `held` is how many are in the potty, which is what is counted aloud. */
+  /** Went in. `held` is how full the potty is now, which is what is counted aloud. */
   | { t: 'catch'; held: number; seat: number }
+  /** A new animal has arrived on the fence. */
+  | { t: 'wake'; seat: number }
   /** That animal has had its fifth and is done. */
   | { t: 'happy'; seat: number }
   /** Left waiting. It is red from now on. */
   | { t: 'angry'; seat: number; strikes: number }
   /** Left waiting once too often. */
   | { t: 'boom'; seat: number }
-  /** The potty is full and will take nothing more until it is emptied. */
+  /** Somebody is asking who will not fit in what is left of the potty. */
   | { t: 'full' }
-  /** Caught on a full potty: it bounces off and lands on the floor. */
-  | { t: 'overflow'; x: number }
   | { t: 'flush' }
   | { t: 'miss'; x: number }
   | { t: 'over'; won: boolean; happy: number };
