@@ -1,5 +1,5 @@
 {
-  "name": "@potty/client",
+  "name": "@colour/client",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@potty/shared": "*",
+    "@colour/shared": "*",
     "@kids/common": "*"
   },
   "devDependencies": {

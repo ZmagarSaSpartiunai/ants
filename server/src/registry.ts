@@ -116,6 +116,20 @@ export const GAMES: Game[] = [
     ages: [6, 99],
   },
   {
+    id: 'colour',
+    title: 'Розмальовка',
+    blurb: 'Обери фарбу і торкнись. Кольори називає голос.',
+    icon: '🎨',
+    path: '/colour',
+    kind: 'bundle',
+    tier: 'free',
+    multiplayer: false,
+    cover: ['rgba(247, 207, 63, 0.4)', '#c98a3a', '#6d4a1f'],
+    note: 'малюкам',
+    // Nothing to read, nothing to lose, and no way to do it wrongly.
+    ages: [2, 6],
+  },
+  {
     id: 'potty',
     title: 'На горщик!',
     blurb: 'Веди горщик і лови все, що падає. Рахуємо вголос.',

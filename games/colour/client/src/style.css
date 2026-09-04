@@ -1,0 +1,104 @@
+/* A sheet of paper, a row of paints, and two buttons. Nothing else. */
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #e5d8bd;
+  color: #4a3f30;
+  font: 16px/1.4 system-ui, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+main {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: max(8px, env(safe-area-inset-top)) 8px 10px;
+}
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #fdfaf2;
+  box-shadow: 0 5px 12px rgba(70, 55, 30, 0.2), 0 22px 46px -22px rgba(50, 38, 20, 0.7);
+}
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* The finger paints, so the browser must not read it as a scroll. */
+  touch-action: none;
+}
+.name {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 5px 16px;
+  border-radius: 999px;
+  font-size: clamp(16px, 3vw, 22px);
+  font-weight: 800;
+  color: #4a3f30;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+/* The paints. Big, round, and far enough apart for a small finger. */
+.palette {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 6px;
+}
+.swatch {
+  aspect-ratio: 1;
+  min-height: 34px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 2px 5px rgba(60, 45, 20, 0.35);
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.swatch[aria-pressed="true"] {
+  transform: scale(1.18);
+  border-color: #4a3f30;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.9), 0 3px 8px rgba(60, 45, 20, 0.45);
+}
+@media (max-width: 520px) {
+  .palette { grid-template-columns: repeat(6, 1fr); }
+}
+
+.tools { display: flex; gap: 8px; justify-content: center; }
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 0;
+  border-radius: 999px;
+}
+.tools button {
+  padding: 12px 22px;
+  font-size: clamp(15px, 3vw, 19px);
+  font-weight: 700;
+  color: #4a3f30;
+  background: #f5edda;
+  box-shadow: 0 3px 0 #c6b48c;
+}
+.tools .primary { color: #3c2f1c; background: linear-gradient(#ffe27a, #f2b429); box-shadow: 0 3px 0 #b8811a; }
+.tools button:active { transform: translateY(2px); box-shadow: none; }
+
+.back, .round {
+  position: absolute;
+  top: 12px;
+  padding: 7px 13px;
+  font-size: 14px;
+  border-radius: 999px;
+  text-decoration: none;
+  color: #4a3f30;
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 2px 5px rgba(60, 45, 20, 0.25);
+}
+.back { left: 12px; }
+.round { right: 12px; }

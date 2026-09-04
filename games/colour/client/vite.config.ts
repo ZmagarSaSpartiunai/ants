@@ -1,10 +1,10 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  // Served under /potty/ on the games host, so the bundle has to look
+  // Served under /colour/ on the games host, so the bundle has to look
   // for its own files there. Built for the root it would ask for /assets/...
   // and get a shelf page back instead.
-  base: '/potty/',
+  base: '/colour/',
   build: {
     target: 'es2022',
     // One bundle, everything inlined: the game must survive being dropped on a
@@ -16,6 +16,6 @@ export default defineConfig({
   // The simulation is a workspace package, so Vite would happily pre-bundle it
   // once and keep serving that copy after a rebuild -- which means playing an
   // old set of rules while the source says otherwise.
-  optimizeDeps: { exclude: ['@potty/shared', '@kids/common'] },
-  server: { port: 5175 },
+  optimizeDeps: { exclude: ['@colour/shared', '@kids/common'] },
+  server: { port: 5176 },
 });

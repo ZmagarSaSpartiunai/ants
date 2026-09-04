@@ -10,12 +10,13 @@
     "games/*/client"
   ],
   "scripts": {
-    "build": "npm run build -w @ants/shared && npm run build -w @pigeons/shared && npm run build -w @potty/shared && npm run build -w @ants/server && npm run build -w @ants/client && npm run build -w @pigeons/client && npm run build -w @potty/client",
+    "build": "npm run build -w @ants/shared && npm run build -w @pigeons/shared && npm run build -w @kids/common && npm run build -w @potty/shared && npm run build -w @colour/shared && npm run build -w @ants/server && npm run build -w @ants/client && npm run build -w @pigeons/client && npm run build -w @potty/client && npm run build -w @colour/client",
     "dev:client": "npm run dev -w @ants/client",
     "dev:server": "npm run dev -w @ants/server",
-    "test": "npm run test -w @ants/shared && npm run test -w @pigeons/shared && npm run test -w @potty/shared && npm run test -w @ants/server",
+    "test": "npm run test -w @ants/shared && npm run test -w @pigeons/shared && npm run test -w @kids/common && npm run test -w @potty/shared && npm run test -w @colour/shared && npm run test -w @ants/server",
     "dev:pigeons": "npm run dev -w @pigeons/client",
-    "dev:potty": "npm run dev -w @potty/client"
+    "dev:potty": "npm run dev -w @potty/client",
+    "dev:colour": "npm run dev -w @colour/client"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
