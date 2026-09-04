@@ -35,6 +35,14 @@ export interface Game {
   multiplayer: boolean;
   /** Environment variable naming the folder, when it is not built in place. */
   rootEnv?: string;
+  /**
+   * Where to look when that variable is not set, relative to the repo root.
+   *
+   * Without it a game living outside the workspace simply vanished from the
+   * shelf on any machine that happened not to export the variable, and a
+   * forgotten variable looked exactly like files that were never deployed.
+   */
+  rootPath?: string;
   /** Card art, drawn in CSS so the shelf ships no images: [glow, top, bottom]. */
   cover: [string, string, string];
   /** The small pill on the card. */
@@ -101,6 +109,8 @@ export const GAMES: Game[] = [
     tier: 'free',
     multiplayer: false,
     rootEnv: 'LUNA_ROOT',
+    // Its own checkout, beside this one.
+    rootPath: '../luna/web',
     cover: ['rgba(196, 168, 232, 0.38)', '#241d33', '#100d18'],
     note: 'прототип',
     ages: [6, 99],

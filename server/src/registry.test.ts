@@ -68,3 +68,13 @@ test('every game is reachable from at least one band', () => {
     assert.ok(AGE_BANDS.some((b) => bandFits(game, b)), `${game.id} falls through every filter`);
   }
 });
+
+test('a game living outside the workspace says where it is, not just which variable', () => {
+  // Луна is a separate checkout. With only an environment variable naming it,
+  // it disappeared from the shelf on every machine that did not export one --
+  // and a forgotten variable is indistinguishable from a failed deploy.
+  for (const game of GAMES) {
+    if (!game.rootEnv) continue;
+    assert.ok(game.rootPath, `${game.id} can only be found through ${game.rootEnv}`);
+  }
+});

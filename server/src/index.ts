@@ -41,13 +41,11 @@ const here = dirname(fileURLToPath(import.meta.url));
  * @return its folder, or null when it was never put there
  */
 function rootFor(game: Game): string | null {
-  if (game.rootEnv) {
-    const set = process.env[game.rootEnv];
-
-    return set ? resolve(set) : null;
-  }
+  const named = game.rootEnv ? process.env[game.rootEnv] : undefined;
+  if (named) return resolve(named);
   const override = process.env[`${game.id.toUpperCase()}_WEB_ROOT`];
   if (override) return resolve(override);
+  if (game.rootPath) return resolve(join(here, '../..', game.rootPath));
 
   return resolve(join(here, `../../${game.id === 'ants' ? 'client' : `games/${game.id}/client`}/dist`));
 }
