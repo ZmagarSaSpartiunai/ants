@@ -1,14 +1,20 @@
 import {
   AnimalId,
   ANIMALS,
+  awakeSeats,
   Drop,
   FIELD_H,
   FIELD_W,
   FLOOR_Y,
+  FLUSH_TIME,
+  POTTY_CAP,
   POTTY_W,
   PottyState,
   SEATS,
   Splat,
+  STARS_PER_LEVEL,
+  TOILET_W,
+  TOILET_X,
 } from '@potty/shared';
 
 /**
@@ -54,8 +60,8 @@ export interface Fly {
 /** What the client is feeling, handed in each frame. */
 export interface Look {
   time: number;
-  /** Which seat is squirming and how far through, or null. */
-  bracing: { seat: number; t: number } | null;
+  /** Which seats are squirming and how far through each is. */
+  bracing: { seat: number; t: number }[];
   /** How hard the potty is celebrating, 1 fading to 0. */
   gulp: number;
   /** The big number's pop, 1 fading to 0. */
@@ -64,6 +70,10 @@ export interface Look {
   flies: Fly[];
   /** Which way the potty is travelling, for the lean. */
   lean: number;
+  /** Seats that have just woken, and how long ago, so they arrive rather than blink in. */
+  arrived: Map<number, number>;
+  /** The star that has just been earned, 1 fading to 0. */
+  starPop: number;
 }
 
 export class View {
@@ -120,15 +130,19 @@ export class View {
     for (const splat of s.splats) drawSplat(ctx, splat);
     for (const fly of look.flies) drawFly(ctx, fly, look.time);
 
-    for (let i = 0; i < SEATS.length; i++) {
-      const bracing = look.bracing && look.bracing.seat === i ? look.bracing.t : 0;
-      drawAnimal(ctx, ANIMALS[i % ANIMALS.length], SEATS[i], bracing, look.time, i);
+    drawToilet(ctx, s.held >= POTTY_CAP, s.flushing, look.time);
+
+    for (const i of awakeSeats(s.level)) {
+      const b = s.bracing.find((x) => x.seat === i);
+      const grow = look.arrived.get(i);
+      drawAnimal(ctx, ANIMALS[i % ANIMALS.length], SEATS[i], b ? b.t : 0, look.time, i, grow);
     }
 
     for (const drop of s.drops) drawDrop(ctx, drop, look.time);
-    drawPotty(ctx, s.pottyX, look);
+    drawPotty(ctx, s, look);
     for (const sp of look.sparkles) drawSparkle(ctx, sp);
-    drawScore(ctx, s.caught, look.pop);
+    drawStars(ctx, s.stars, look.starPop);
+    if (s.held > 0) drawScore(ctx, s.held, look.pop);
 
     ctx.restore();
   }
@@ -255,6 +269,7 @@ function drawAnimal(
   brace: number,
   time: number,
   slot: number,
+  arrived?: number,
 ): void {
   const coat = COAT[id];
   // Squirming: it presses down, shivers, and the shiver gets faster.
@@ -264,6 +279,15 @@ function drawAnimal(
 
   ctx.save();
   ctx.translate(seat.x + shake, seat.y + push * 4 + breathe);
+  if (arrived !== undefined && arrived < 1) {
+    // Drops in and overshoots, so a new animal is an event and not a change
+    // the child finds already made.
+    const p = arrived;
+    const ease = 1 - Math.pow(1 - p, 3);
+    ctx.translate(0, -70 * (1 - ease));
+    const wobble = 1 + Math.sin(p * Math.PI * 2.2) * 0.18 * (1 - p);
+    ctx.scale(wobble, 2 - wobble);
+  }
 
   ctx.fillStyle = 'rgba(70,50,30,0.22)';
   ctx.beginPath();
@@ -539,13 +563,18 @@ function drawFly(ctx: CanvasRenderingContext2D, fly: Fly, time: number): void {
   ctx.restore();
 }
 
-function drawPotty(ctx: CanvasRenderingContext2D, x: number, look: Look): void {
+function drawPotty(ctx: CanvasRenderingContext2D, st: PottyState, look: Look): void {
+  const x = st.pottyX;
+  const full = st.held >= POTTY_CAP;
+  // Tips over the bowl as it empties, and rights itself at the end.
+  const flush = st.flushing > 0 ? 1 - st.flushing / FLUSH_TIME : 0;
+  const tip = Math.sin(Math.min(1, flush * 1.6) * Math.PI) * 0.9;
   ctx.save();
   // Placed so the rim sits on the line the rules actually catch at. Drawn
   // lower, the pot swallowed things that visibly passed above it.
-  ctx.translate(x, FLOOR_Y - 6);
+  ctx.translate(x, FLOOR_Y - 6 - tip * 26);
   // Leans into the run and bounces when it swallows one.
-  ctx.rotate(-look.lean * 0.16);
+  ctx.rotate(-look.lean * 0.16 + tip * 1.5);
   const gulp = look.gulp;
   ctx.translate(0, -gulp * 6);
   ctx.scale(1 + gulp * 0.14, 1 - gulp * 0.12);
@@ -558,10 +587,10 @@ function drawPotty(ctx: CanvasRenderingContext2D, x: number, look: Look): void {
 
   // Handle, behind the pot so it reads as sticking out of the far side.
   ctx.strokeStyle = '#2f86a8';
-  ctx.lineWidth = 9;
+  ctx.lineWidth = 8;
   ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.arc(-half - 2, 2, 15, Math.PI * 0.45, Math.PI * 1.55);
+  ctx.arc(-half + 3, 14, 11, Math.PI * 0.5, Math.PI * 1.5);
   ctx.stroke();
   ctx.strokeStyle = 'rgba(20,60,78,0.55)';
   ctx.lineWidth = 2;
@@ -608,16 +637,19 @@ function drawPotty(ctx: CanvasRenderingContext2D, x: number, look: Look): void {
 
   // A face, so the potty is somebody rather than a bucket.
   ctx.fillStyle = '#0f3f51';
-  const squint = gulp > 0.3;
+  // Three faces, and they are the instructions: pleased, then wide-eyed and
+  // full, then relieved. Nothing here is written down, so the pot has to say it.
+  const squint = gulp > 0.3 || flush > 0.1;
   for (const sx of [-1, 1]) {
     ctx.beginPath();
     if (squint) ctx.ellipse(sx * 15, 6, 4.6, 1.2, 0, 0, TAU);
+    else if (full) ctx.ellipse(sx * 15, 5, 5.4, 6.2, 0, 0, TAU);
     else ctx.ellipse(sx * 15, 6, 4.2, 4.8, 0, 0, TAU);
     ctx.fill();
     if (!squint) {
       ctx.fillStyle = 'rgba(255,255,255,0.95)';
       ctx.beginPath();
-      ctx.arc(sx * 15 - 1.5, 4, 1.4, 0, TAU);
+      ctx.arc(sx * 15 - 1.5, full ? 2.6 : 4, full ? 1.8 : 1.4, 0, TAU);
       ctx.fill();
       ctx.fillStyle = '#0f3f51';
     }
@@ -626,18 +658,160 @@ function drawPotty(ctx: CanvasRenderingContext2D, x: number, look: Look): void {
   ctx.lineWidth = 2.8;
   ctx.lineCap = 'round';
   ctx.beginPath();
-  if (gulp > 0.05) ctx.arc(0, 15, 8, 0, Math.PI);
-  else {
+  if (gulp > 0.05 || flush > 0.1) ctx.arc(0, 15, 8, 0, Math.PI);
+  else if (full) {
+    // A flat, worried mouth: it cannot take another one and it knows it.
+    ctx.moveTo(-8, 18);
+    ctx.lineTo(8, 18);
+  } else {
     ctx.moveTo(-8, 16);
     ctx.quadraticCurveTo(0, 23, 8, 16);
   }
   ctx.stroke();
+
+  // What is in it, heaped above the rim. A level hidden inside an opaque pot
+  // is a number the child cannot see, and this game has no numbers to read.
+  const shown = st.flushing > 0 ? Math.max(0, st.held * (1 - flush * 1.8)) : st.held;
+  // A heap, not a stack: two on the bottom row, then the rest on top of them.
+  // Piled straight up they overlapped into one brown lump and the child could
+  // not see how many were in there.
+  const HEAP: [number, number][] = [[-17, -22], [17, -24], [-7, -38], [9, -40]];
+  for (let i = 0; i < Math.ceil(shown); i++) {
+    const scale = Math.min(1, shown - i) * 0.5;
+    const [hx, hy] = HEAP[i % HEAP.length];
+    ctx.save();
+    ctx.translate(hx, hy);
+    ctx.scale(scale, scale);
+    poo(ctx, 1);
+    ctx.restore();
+  }
 
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
   ctx.beginPath();
   ctx.ellipse(-half + 17, 6, 5, 16, 0.1, 0, TAU);
   ctx.fill();
   ctx.restore();
+}
+
+/**
+ * The toilet the potty is emptied into.
+ *
+ * @param ctx where to draw
+ * @param wanted whether the potty is full and should come here
+ * @param flushing seconds left of the flush, or zero
+ * @param time seconds, for the beckoning arrow
+ */
+function drawToilet(
+  ctx: CanvasRenderingContext2D,
+  wanted: boolean,
+  flushing: number,
+  time: number,
+): void {
+  ctx.save();
+  ctx.translate(TOILET_X, FLOOR_Y);
+
+  ctx.fillStyle = 'rgba(70,50,30,0.25)';
+  ctx.beginPath();
+  ctx.ellipse(4, 34, TOILET_W * 0.52, 8, 0, 0, TAU);
+  ctx.fill();
+
+  // Cistern behind, then the bowl in front of it.
+  ctx.fillStyle = '#e8eef2';
+  round(ctx, -TOILET_W / 2 + 6, -96, TOILET_W - 12, 46, 8);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(90,110,124,0.75)';
+  ctx.lineWidth = 2.4;
+  round(ctx, -TOILET_W / 2 + 6, -96, TOILET_W - 12, 46, 8);
+  ctx.stroke();
+  // The handle, pressed down while it flushes.
+  ctx.fillStyle = '#9fb3c0';
+  round(ctx, TOILET_W / 2 - 16, -88 + (flushing > 0 ? 5 : 0), 12, 7, 3);
+  ctx.fill();
+
+  const bowl = ctx.createLinearGradient(-TOILET_W / 2, -50, TOILET_W / 2, 34);
+  bowl.addColorStop(0, '#ffffff');
+  bowl.addColorStop(1, '#b9c8d2');
+  ctx.fillStyle = bowl;
+  ctx.beginPath();
+  ctx.moveTo(-TOILET_W / 2, -50);
+  ctx.quadraticCurveTo(-TOILET_W / 2 + 8, 20, -20, 32);
+  ctx.lineTo(20, 32);
+  ctx.quadraticCurveTo(TOILET_W / 2 - 8, 20, TOILET_W / 2, -50);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(90,110,124,0.75)';
+  ctx.stroke();
+
+  // The rim and the water in it.
+  ctx.fillStyle = '#f4f8fa';
+  ctx.beginPath();
+  ctx.ellipse(0, -50, TOILET_W / 2, 13, 0, 0, TAU);
+  ctx.fill();
+  ctx.stroke();
+  const swirl = flushing > 0 ? Math.sin(time * 26) * 3 : 0;
+  ctx.fillStyle = flushing > 0 ? '#6fc6e8' : '#8fd3e8';
+  ctx.beginPath();
+  ctx.ellipse(swirl, -49, TOILET_W / 2 - 11, 8, 0, 0, TAU);
+  ctx.fill();
+  if (flushing > 0) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 3; i++) {
+      const a = time * 9 + (i * TAU) / 3;
+      ctx.beginPath();
+      ctx.ellipse(0, -49, 8 + i * 6, 3 + i * 2, a, 0, Math.PI * 1.4);
+      ctx.stroke();
+    }
+  }
+
+  // While the potty is full, the toilet asks for it. A four-year-old is not
+  // going to work out on their own that the pot has to be carried anywhere.
+  if (wanted && flushing <= 0) {
+    const bounce = Math.abs(Math.sin(time * 3.4)) * 9;
+    ctx.fillStyle = '#f2b429';
+    ctx.strokeStyle = 'rgba(58,40,32,0.75)';
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.moveTo(0, -110 - bounce + 24);
+    ctx.lineTo(-13, -110 - bounce);
+    ctx.lineTo(-6, -110 - bounce);
+    ctx.lineTo(-6, -110 - bounce - 16);
+    ctx.lineTo(6, -110 - bounce - 16);
+    ctx.lineTo(6, -110 - bounce);
+    ctx.lineTo(13, -110 - bounce);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/**
+ * The row of stars: the only goal in the game, and the only thing on screen
+ * that says a level is going somewhere.
+ *
+ * @param ctx where to draw
+ * @param stars how many are earned
+ * @param pop how recently the last one landed, 1 fading to 0
+ */
+function drawStars(ctx: CanvasRenderingContext2D, stars: number, pop: number): void {
+  // Top right, in empty sky. Under the number they landed across the animals'
+  // faces, and the faces are what the child has to be watching.
+  const gap = 34;
+  const left = FIELD_W - 30 - (STARS_PER_LEVEL - 1) * gap;
+  for (let i = 0; i < STARS_PER_LEVEL; i++) {
+    const got = i < stars;
+    const grow = got && i === stars - 1 ? pop : 0;
+    ctx.save();
+    ctx.translate(left + i * gap, 46);
+    ctx.scale(1 + grow * 0.6, 1 + grow * 0.6);
+    ctx.fillStyle = got ? '#ffd451' : 'rgba(255,255,255,0.32)';
+    ctx.strokeStyle = got ? 'rgba(120,80,10,0.6)' : 'rgba(70,90,100,0.3)';
+    ctx.lineWidth = 2.2;
+    star(ctx, 0, 0, 13);
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 function drawSparkle(ctx: CanvasRenderingContext2D, sp: Sparkle): void {

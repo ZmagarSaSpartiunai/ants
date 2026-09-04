@@ -18,6 +18,18 @@ export const POTTY_SPEED = 620;
 export const DROP_R = 13;
 export const GRAVITY = 300;
 
+/** How many the potty holds before it has to be emptied. */
+export const POTTY_CAP = 4;
+/** Stars needed to finish a level. */
+export const STARS_PER_LEVEL = 3;
+/** Where the toilet stands, and how wide its target is. */
+export const TOILET_X = 748;
+export const TOILET_W = 86;
+/** How long emptying takes. The potty catches nothing while it lasts. */
+export const FLUSH_TIME = 1.05;
+/** Nothing is dropped past here, or it would fall onto the toilet. */
+export const DROP_MAX_X = 690;
+
 /** Where the animals sit, left to right along the fence. */
 export const SEATS: { x: number; y: number }[] = [
   { x: 130, y: 150 },
@@ -54,16 +66,32 @@ export interface PottyState {
   splats: Splat[];
   caught: number;
   missed: number;
+  /** How many are in the potty right now. */
+  held: number;
+  /** Stars earned towards the current level. */
+  stars: number;
+  /** Counts from one. It decides how many animals are awake. */
+  level: number;
+  /** Seconds left of emptying, or zero. */
+  flushing: number;
   /** Seconds until the next animal goes. */
   until: number;
   nextId: number;
-  /** Which seat is winding up, and how far through, or null. */
-  bracing: { seat: number; t: number } | null;
+  /** Which seats are winding up, and how far through each is. */
+  bracing: { seat: number; t: number }[];
 }
 
 /** What happened during one step, for the client to make a noise about. */
 export type Event =
   | { t: 'brace'; seat: number }
   | { t: 'drop'; seat: number; x: number }
-  | { t: 'catch'; count: number }
+  /** Went in. `held` is how many are in the potty now, which is what is counted aloud. */
+  | { t: 'catch'; held: number }
+  /** The potty is full and will take nothing more until it is emptied. */
+  | { t: 'full' }
+  /** Caught on a full potty: it bounces off and lands on the floor. */
+  | { t: 'overflow'; x: number }
+  | { t: 'flush' }
+  | { t: 'star'; stars: number }
+  | { t: 'level'; level: number }
   | { t: 'miss'; x: number };

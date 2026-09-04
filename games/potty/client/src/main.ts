@@ -1,6 +1,6 @@
-import { createGame, FIELD_W, FLOOR_Y, PottyState, step } from '@potty/shared';
+import { awakeSeats, createGame, FIELD_W, FLOOR_Y, PottyState, step, TOILET_X } from '@potty/shared';
 import { Fly, Look, Sparkle, View } from './render.js';
-import { fanfare, plop, say, setSound, soundOn, splat, unlock, warn } from './audio.js';
+import { chime, fanfare, flush, full, plop, say, setSound, soundOn, splat, unlock, warn } from './audio.js';
 import './style.css';
 
 /**
@@ -25,12 +25,14 @@ let lastX = aim;
 
 const look: Look = {
   time: 0,
-  bracing: null,
+  bracing: [],
   gulp: 0,
   pop: 0,
   sparkles: [],
   flies: [],
   lean: 0,
+  arrived: new Map(),
+  starPop: 0,
 };
 
 function point(clientX: number): void {
@@ -92,11 +94,30 @@ function frame(now: number): void {
         look.gulp = 1;
         look.pop = 1;
         plop();
-        say(event.count);
-        burst(state.pottyX, FLOOR_Y - 20, 14, '#ffe27a');
-        if (event.count % 10 === 0) {
-          fanfare();
-          burst(FIELD_W / 2, 90, 26, '#9be8a6');
+        // The number said out loud is how many are in the pot, one to four --
+        // a count a child of three can follow and join in with. Counting the
+        // running total to thirty-seven teaches nobody anything.
+        say(event.held);
+        burst(state.pottyX, FLOOR_Y - 30, 14, '#ffe27a');
+      } else if (event.t === 'full') {
+        full();
+      } else if (event.t === 'overflow') {
+        splat();
+        burst(event.x, FLOOR_Y - 20, 10, '#a9713c');
+      } else if (event.t === 'flush') {
+        flush();
+      } else if (event.t === 'star') {
+        look.starPop = 1;
+        chime();
+        burst(TOILET_X, FLOOR_Y - 120, 20, '#ffd451');
+      } else if (event.t === 'level') {
+        fanfare();
+        burst(FIELD_W / 2, 130, 30, '#9be8a6');
+        // Whoever has just woken gets an entrance.
+        for (const seat of awakeSeats(event.level)) {
+          if (!look.arrived.has(seat) && !awakeSeats(event.level - 1).includes(seat)) {
+            look.arrived.set(seat, 0);
+          }
         }
       } else if (event.t === 'miss') {
         splat();
@@ -117,6 +138,12 @@ function frame(now: number): void {
   look.bracing = state.bracing;
   look.gulp = Math.max(0, look.gulp - dt * 2.6);
   look.pop = Math.max(0, look.pop - dt * 3.2);
+  look.starPop = Math.max(0, look.starPop - dt * 2);
+  for (const [seat, t] of look.arrived) {
+    const next = t + dt / 0.7;
+    if (next >= 1) look.arrived.delete(seat);
+    else look.arrived.set(seat, next);
+  }
   // The lean is taken from how far the potty actually travelled, so it can
   // never disagree with the movement the eye is watching.
   const moved = (state.pottyX - lastX) / Math.max(dt, 1e-4);

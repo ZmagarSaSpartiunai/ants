@@ -104,7 +104,37 @@ export function warn(): void {
   tone(300, 0.1, 'square', 0.08);
 }
 
-/** Every tenth catch deserves something. */
+/** The pot is full: two flat notes, so it reads as a problem, not a prize. */
+export function full(): void {
+  tone(330, 0.14, 'square', 0.1);
+  window.setTimeout(() => tone(262, 0.2, 'square', 0.1), 130);
+}
+
+/** Water going down, faked with a note sliding under a hiss of high ones. */
+export function flush(): void {
+  if (!on || !ctx) return;
+  const osc = ctx.createOscillator();
+  const amp = ctx.createGain();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(520, ctx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(120, ctx.currentTime + 0.9);
+  amp.gain.setValueAtTime(0.12, ctx.currentTime);
+  amp.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1);
+  osc.connect(amp).connect(ctx.destination);
+  osc.start();
+  osc.stop(ctx.currentTime + 1);
+  for (let i = 0; i < 6; i++) {
+    window.setTimeout(() => tone(900 + Math.random() * 700, 0.07, 'sine', 0.05), i * 130);
+  }
+}
+
+/** One star earned. */
+export function chime(): void {
+  tone(880, 0.16, 'triangle', 0.18);
+  window.setTimeout(() => tone(1319, 0.22, 'triangle', 0.16), 90);
+}
+
+/** A level finished. */
 export function fanfare(): void {
   const notes = [523, 659, 784, 1047];
   notes.forEach((f, i) => window.setTimeout(() => tone(f, 0.22, 'triangle', 0.2), i * 110));
