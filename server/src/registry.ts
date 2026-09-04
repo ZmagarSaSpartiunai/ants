@@ -126,6 +126,21 @@ export const GAMES: Game[] = [
     ages: [5, 12],
   },
   {
+    id: 'potty',
+    title: 'На горщик!',
+    blurb: 'Веди горщик і лови все, що падає. Рахуємо вголос.',
+    icon: '🚽',
+    path: '/kaka/potty',
+    kind: 'bundle',
+    tier: 'free',
+    shelf: 'kaka',
+    multiplayer: false,
+    cover: ['rgba(143, 211, 232, 0.4)', '#2f86a8', '#17475c'],
+    note: 'малюкам',
+    // Nothing to read, nothing to lose, and the counting is the lesson.
+    ages: [3, 6],
+  },
+  {
     id: 'pigeons',
     title: 'Голуби',
     blurb: 'Обери, що з’їсти, і цілься. Вітер заважає.',
