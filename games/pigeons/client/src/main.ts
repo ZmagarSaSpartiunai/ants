@@ -14,7 +14,8 @@ import {
   resolveRound,
   windFor,
 } from '@pigeons/shared';
-import { Decal, Fleck, FOOD_TINT, Hud, Tumble, View } from './render.js';
+import { Decal, Fleck, FOOD_TINT, Hud, View } from './render.js';
+import { startTumble, stepTumble, Tumble } from './tumble.js';
 import './style.css';
 
 /**
@@ -364,24 +365,37 @@ class Game {
       // standing where it was reads as nothing much having happened.
       if (!bird.alive) continue;
       const push = Math.min(46, 14 + this.damage[i] * 0.8);
-      const dir = ax >= 0 ? 1 : -1;
-      this.tumble.set(i, {
-        phase: 'fall',
-        x: 0,
-        y: 0,
-        vx: (ax / len) * push * 3.4,
-        vy: (ay / len) * push * 2 - 110,
-        spin: 0,
-        spinV: dir * 9,
-        t: 0,
-        dir,
-      });
+      this.tumble.set(i, startTumble(ax / len, ay / len, push));
     }
     for (const bird of this.state.birds) {
       if (!bird.alive && !this.falling.has(bird.slot)) this.falling.set(bird.slot, 0.001);
     }
     this.phase = 'settle';
     this.settleFor = 0.9;
+  }
+
+  /**
+   * Grit kicked up where a bird meets stone. Purely visual, so it draws on
+   * Math.random and never on the match seed.
+   *
+   * @param x where it landed
+   * @param y the surface it landed on
+   * @param n how many specks
+   */
+  private dust(x: number, y: number, n: number): void {
+    for (let i = 0; i < n; i++) {
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.9;
+      const sp = 30 + Math.random() * 90;
+      this.flecks.push({
+        x: x + (Math.random() - 0.5) * 14,
+        y,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp * 0.6,
+        r: 1 + Math.random() * 1.8,
+        life: 0.8,
+        tint: '#b9ac97',
+      });
+    }
   }
 
   private finish(): void {
@@ -425,41 +439,8 @@ class Game {
       const bird = this.state.birds[slot];
       // How far the pavement is below this bird's own perch.
       const drop = GROUND_Y - 14 - bird.y;
-      k.t += dt;
-      if (k.phase === 'fall') {
-        k.vy += 900 * dt;
-        k.x += k.vx * dt;
-        k.y += k.vy * dt;
-        k.spin += k.spinV * dt;
-        if (k.y >= drop) {
-          k.y = drop;
-          k.phase = 'sprawl';
-          k.t = 0;
-          // Lands on its side, thrown the way it was hit.
-          k.spin = k.dir * (Math.PI / 2) * 0.85;
-        }
-      } else if (k.phase === 'sprawl') {
-        if (k.t > 0.5) {
-          k.phase = 'walk';
-          k.t = 0;
-        }
-      } else if (k.phase === 'walk') {
-        // Back on its feet, then a waddle home along the pavement.
-        k.spin += (0 - k.spin) * Math.min(1, dt * 9);
-        const step = 120 * dt;
-        k.x += Math.sign(-k.x) * Math.min(step, Math.abs(k.x));
-        if (Math.abs(k.x) < 0.6) {
-          k.x = 0;
-          k.phase = 'hop';
-          k.t = 0;
-          // Just enough to clear the ledge and land on it.
-          k.vy = -Math.sqrt(2 * 900 * (drop + 34));
-        }
-      } else {
-        k.vy += 900 * dt;
-        k.y += k.vy * dt;
-        if (k.y <= 0) this.tumble.delete(slot);
-      }
+      const alive = stepTumble(k, dt, drop, (ox, oy, n) => this.dust(bird.x + ox, bird.y + oy + 15, n));
+      if (!alive) this.tumble.delete(slot);
     }
     for (let i = this.flecks.length - 1; i >= 0; i--) {
       const f = this.flecks[i];

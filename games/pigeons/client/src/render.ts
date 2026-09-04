@@ -1,3 +1,4 @@
+import { headThrust, Tumble, WALK_CYCLE } from './tumble.js';
 import {
   Bird,
   FIELD_H,
@@ -24,6 +25,8 @@ import {
  */
 
 const TAU = Math.PI * 2;
+
+export type { Tumble };
 
 /**
  * The line that holds the bird together.
@@ -123,29 +126,6 @@ const SEAT_TINT: [string, string][] = [
  * be told where it ends.
  */
 const PREVIEW_STEPS = 62;
-
-/**
- * A bird knocked off its perch.
- *
- * Purely how it looks: the bird's real position never moves, so the rules and
- * every replay stay exactly as they were. The next round is held until every
- * bird is home again, so no shot is ever fired at a bird that is not where the
- * simulation says it is.
- */
-export interface Tumble {
-  phase: 'fall' | 'sprawl' | 'walk' | 'hop';
-  /** Offset from the perch, in world units. */
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  spin: number;
-  spinV: number;
-  /** Seconds spent in the current phase. */
-  t: number;
-  /** Which way it was thrown, so it gets up facing the right way. */
-  dir: number;
-}
 
 interface Leaf {
   x: number;
@@ -496,11 +476,25 @@ function drawBird(
   const blink = (hud.time * 0.7 + bird.slot * 2.3) % 4 > 3.88;
 
   const knock = hud.tumble.get(bird.slot);
+  // One cycle number drives the legs, the sway and the head, so they cannot
+  // drift apart. They were three separate frequencies, and a walk whose parts
+  // disagree is the thing that reads as broken rather than as slow.
+  const cycle = knock ? knock.t * WALK_CYCLE : 0;
   // A bird on the ground has stopped bobbing, and a bird walking bobs with its
   // stride instead.
-  const sway = knock ? (knock.phase === 'walk' ? Math.abs(Math.sin(knock.t * 11)) * 1.4 : 0) : bob;
+  const sway = knock ? (knock.phase === 'walk' ? Math.abs(Math.sin(cycle * TAU)) * 1.4 : 0) : bob;
   ctx.save();
   ctx.translate(bird.x + (knock?.x ?? 0), bird.y + sway + fall * fall * 2.2 + (knock?.y ?? 0));
+  // Squash and stretch, applied before the body is rolled and taken from the
+  // feet rather than the middle. Rolled first, the flattening ran along the
+  // bird instead of against the ground -- a body landing on stone is pressed
+  // down by the stone, whatever angle it happens to be lying at.
+  const sq = knock ? knock.sq + (knock.phase === 'sprawl' ? Math.sin(knock.t * 4.4) * 0.05 : 0) : 0;
+  if (sq !== 0) {
+    ctx.translate(0, 15);
+    ctx.scale(1 + sq * 0.5, 1 - sq * 0.5);
+    ctx.translate(0, -15);
+  }
   if (knock) ctx.rotate(knock.spin);
   if (fall > 0) ctx.rotate(fall * 0.16);
   if (knock && knock.phase === 'walk') facing = knock.x > 0 ? -1 : 1;
@@ -519,7 +513,7 @@ function drawBird(
 
   // Feet gripping the ledge: toes forward and one back, not two sticks. While
   // walking they alternate, which is the whole reason a waddle reads as one.
-  const stride = knock && knock.phase === 'walk' ? Math.sin(knock.t * 11) * 3.2 : 0;
+  const stride = knock && knock.phase === 'walk' ? Math.sin(cycle * TAU) * 3.2 : 0;
   ctx.strokeStyle = '#c9803a';
   ctx.lineWidth = 2.1;
   ctx.lineCap = 'round';
@@ -606,6 +600,23 @@ function drawBird(
   ctx.lineTo(5, 2.6);
   ctx.stroke();
 
+  // The head is drawn as its own group so it can move on its own. A pigeon's
+  // head is the only part of it anybody can describe from memory: it is thrust
+  // forward and then held still in the air while the body walks on underneath.
+  let headX = 0;
+  let headY = 0;
+  if (knock && knock.phase === 'walk') {
+    headX = headThrust(cycle) - 1.9;
+  } else if (bird.alive && !knock) {
+    // Standing, it is mostly still and then jerks. Constant motion reads as a
+    // toy on a spring; stillness broken by a jerk reads as a bird.
+    const beat = (hud.time * 0.42 + bird.slot * 0.61) % 1;
+    if (beat < 0.16) headX = Math.sin((beat / 0.16) * Math.PI) * 2.6;
+    // Trailing the body's bob rather than moving with it: the neck is not rigid.
+    headY = Math.sin(hud.time * 2 + bird.slot * 1.7 + 0.9) * 0.55;
+  }
+  ctx.save();
+  ctx.translate(headX, headY);
   g = ctx.createRadialGradient(8, -15, 1, 11, -11, 14);
   g.addColorStop(0, '#cdd8e0');
   g.addColorStop(1, tint[0]);
@@ -658,6 +669,8 @@ function drawBird(
     ctx.arc(14.1, -14.4, 0.8, 0, TAU);
     ctx.fill();
   }
+
+  ctx.restore();
 
   ctx.strokeStyle = 'rgba(255,244,220,0.3)';
   ctx.lineWidth = 1.4;
@@ -720,9 +733,11 @@ function drawBird(
   }
 
   if (knock && knock.phase === 'sprawl') {
-    // Seeing stars, in the oldest cartoon shorthand there is.
+    // Seeing stars, in the oldest cartoon shorthand there is. Drawn upright in
+    // the world: stars that roll over with the bird are debris, not stars.
     ctx.save();
     ctx.scale(facing, 1);
+    ctx.rotate(-knock.spin);
     ctx.fillStyle = '#ffd96b';
     for (let i = 0; i < 3; i++) {
       const a = knock.t * 4 + (i * TAU) / 3;
