@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#f6e6c8">
+<meta name="robots" content="noindex, nofollow">
+<title>У садочку</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%A7%B8%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+<main>
+  <div class="stage">
+    <canvas id="room"></canvas>
+    <a class="kid-round back" href="/">←</a>
+    <div class="dots" id="dots"></div>
+    <button id="sound" class="kid-round snd" type="button" title="Звук">🔊</button>
+    <div id="start" class="kid-panel">
+      <p class="kid-face">🧸</p>
+      <p class="kid-title">У садочку</p>
+      <p class="kid-sub">Нагодуй, прибери іграшки<br>і поклади всіх спати.</p>
+      <button id="play" class="kid-go" type="button">Грати</button>
+    </div>
+    <div id="done" class="kid-panel" hidden>
+      <p class="kid-face">🌙</p>
+      <p class="kid-title">Тиха година</p>
+      <p class="kid-sub" id="doneSub"></p>
+      <button id="again" class="kid-go" type="button">Ще раз</button>
+    </div>
+  </div>
+  <div class="shelf" id="shelf"></div>
+</main>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

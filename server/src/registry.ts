@@ -116,6 +116,20 @@ export const GAMES: Game[] = [
     ages: [6, 99],
   },
   {
+    id: 'nursery',
+    title: 'У садочку',
+    blurb: 'Нагодуй, прибери іграшки і поклади всіх спати.',
+    icon: '🧸',
+    path: '/nursery',
+    kind: 'bundle',
+    tier: 'free',
+    multiplayer: false,
+    cover: ['rgba(240, 200, 120, 0.42)', '#c98a3a', '#6b4520'],
+    note: 'малюкам',
+    // A morning in the order a morning has: the order is the lesson.
+    ages: [2, 6],
+  },
+  {
     id: 'doctor',
     title: 'Лікарня',
     blurb: 'Прийшов пацієнт. Візьми щось із полички і полікуй.',

@@ -1,0 +1,71 @@
+/*
+ * The furniture every game for small children shares: the panel that opens it,
+ * the panel that closes it, the dots along the top and the little round
+ * buttons in the corners. Colours come from the game, through these variables.
+ */
+.kid-panel {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+  padding: 20px;
+  background: var(--kid-veil, rgba(24, 46, 40, 0.72));
+  color: #fff;
+  backdrop-filter: blur(3px);
+}
+.kid-panel[hidden] { display: none; }
+.kid-face { margin: 0; font-size: clamp(44px, 10vw, 84px); line-height: 1; }
+.kid-title {
+  margin: 0;
+  font-size: clamp(30px, 7vw, 56px);
+  font-weight: 800;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.35);
+}
+.kid-sub { margin: 0 0 8px; font-size: clamp(14px, 2.6vw, 19px); opacity: 0.92; }
+
+.kid-go {
+  font: inherit;
+  cursor: pointer;
+  border: 0;
+  border-radius: 999px;
+  padding: 16px 46px;
+  font-size: clamp(20px, 4vw, 28px);
+  font-weight: 800;
+  color: var(--kid-ink, #2c4030);
+  background: linear-gradient(#ffe27a, #f2b429);
+  box-shadow: 0 5px 0 #b8811a, 0 12px 22px -8px rgba(0, 0, 0, 0.5);
+}
+.kid-go:active { transform: translateY(3px); box-shadow: 0 2px 0 #b8811a; }
+
+.dots {
+  display: flex;
+  gap: 7px;
+  justify-content: center;
+}
+.dot {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: rgba(60, 70, 70, 0.2);
+}
+.dot.done { background: #5eb84f; }
+.dot.now { background: #f2b429; transform: scale(1.25); }
+
+.kid-round {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  font: inherit;
+  font-size: 17px;
+  border: 0;
+  border-radius: 999px;
+  text-decoration: none;
+  cursor: pointer;
+  color: var(--kid-ink, #33474d);
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 2px 5px rgba(30, 60, 60, 0.25);
+}
