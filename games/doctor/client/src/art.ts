@@ -53,52 +53,289 @@ const COAT: Record<string, [string, string, string]> = {
   frog: ['#7fc35a', '#4e8c36', '#e8f0c8'],
 };
 
-/** The room behind everything, painted once. */
+/**
+ * The room behind everything, painted once into an offscreen canvas.
+ *
+ * Light comes from the top left and every shadow falls down and to the right,
+ * the same rule the rest of the shelf follows. For a game aimed at children
+ * that is not decoration: it is what makes a flat canvas read as a room with
+ * things standing in it rather than as shapes lying on a background.
+ */
 export function drawRoom(ctx: CanvasRenderingContext2D): void {
-  const wall = ctx.createLinearGradient(0, 0, 0, H);
-  wall.addColorStop(0, '#dff0f4');
-  wall.addColorStop(1, '#eef7f2');
+  const floorY = 352;
+
+  // Wall, warm at the top left where the light is.
+  const wall = ctx.createLinearGradient(0, 0, W * 0.7, floorY);
+  wall.addColorStop(0, '#eaf6f7');
+  wall.addColorStop(1, '#cfe3e6');
   ctx.fillStyle = wall;
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillRect(0, 0, W, floorY);
 
-  // A window, so the room is a room.
-  ctx.fillStyle = '#bfe4f2';
-  round(ctx, 60, 48, 130, 110, 10);
-  ctx.fill();
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 9;
-  round(ctx, 60, 48, 130, 110, 10);
-  ctx.stroke();
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 7;
+  // Floor, receding: the boards converge a little, so there is a room.
+  ctx.fillStyle = '#d8c3a0';
+  ctx.fillRect(0, floorY, W, H - floorY);
+  ctx.strokeStyle = 'rgba(140, 110, 74, 0.3)';
+  ctx.lineWidth = 2;
+  for (let i = -3; i <= 10; i++) {
+    const x = i * 82;
+    ctx.beginPath();
+    ctx.moveTo(x, floorY);
+    ctx.lineTo(x - 46, H);
+    ctx.stroke();
+  }
+  for (const [y, a] of [[floorY + 34, 0.22], [floorY + 84, 0.16]] as [number, number][]) {
+    ctx.strokeStyle = `rgba(140, 110, 74, ${a})`;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+  }
+
+  // Skirting, which is most of what tells the eye where the wall stops.
+  ctx.fillStyle = '#f4fbfb';
+  ctx.fillRect(0, floorY - 16, W, 16);
+  ctx.fillStyle = 'rgba(90, 120, 126, 0.35)';
+  ctx.fillRect(0, floorY - 3, W, 5);
+
+  // A rug under the couch. Blue, it read as a puddle on the floor.
+  ctx.fillStyle = '#e0b878';
   ctx.beginPath();
-  ctx.moveTo(125, 48);
-  ctx.lineTo(125, 158);
-  ctx.moveTo(60, 103);
-  ctx.lineTo(190, 103);
+  ctx.ellipse(350, 430, 268, 58, 0, 0, TAU);
+  ctx.fill();
+  ctx.strokeStyle = '#c99a56';
+  ctx.lineWidth = 9;
+  ctx.beginPath();
+  ctx.ellipse(350, 430, 232, 46, 0, 0, TAU);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(255, 244, 220, 0.5)';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.ellipse(350, 430, 206, 38, 0, 0, TAU);
   ctx.stroke();
 
-  // A red cross on the wall, which every child already knows the meaning of.
-  ctx.fillStyle = '#e0453c';
-  round(ctx, 546, 62, 26, 86, 6);
+  window_(ctx, 46, 44);
+  cabinet(ctx, 556, 176);
+  chart(ctx, 226, 40);
+  plant(ctx, 116, 300);
+  couch(ctx);
+}
+
+/**
+ * A window with something behind it, because a blue rectangle is a poster.
+ *
+ * @param ctx where to draw
+ * @param x left edge
+ * @param y top edge
+ */
+function window_(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+  const w = 148;
+  const h = 118;
+  const sky = ctx.createLinearGradient(x, y, x, y + h);
+  sky.addColorStop(0, '#8fd0ee');
+  sky.addColorStop(1, '#d6f0f6');
+  ctx.fillStyle = sky;
+  round(ctx, x, y, w, h, 8);
   ctx.fill();
-  round(ctx, 516, 92, 86, 26, 6);
+  // A hill and a sun, so there is an outside.
+  ctx.save();
+  round(ctx, x, y, w, h, 8);
+  ctx.clip();
+  ctx.fillStyle = '#ffe9a8';
+  ctx.beginPath();
+  ctx.arc(x + 112, y + 30, 20, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = '#8dc86e';
+  ctx.beginPath();
+  ctx.ellipse(x + 40, y + 132, 78, 46, 0, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = '#7bb85e';
+  ctx.beginPath();
+  ctx.ellipse(x + 128, y + 138, 62, 40, 0, 0, TAU);
+  ctx.fill();
+  ctx.restore();
+
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 10;
+  round(ctx, x, y, w, h, 8);
+  ctx.stroke();
+  ctx.lineWidth = 8;
+  ctx.beginPath();
+  ctx.moveTo(x + w / 2, y);
+  ctx.lineTo(x + w / 2, y + h);
+  ctx.moveTo(x, y + h / 2);
+  ctx.lineTo(x + w, y + h / 2);
+  ctx.stroke();
+  // Sill, with its shadow underneath.
+  ctx.fillStyle = '#ffffff';
+  round(ctx, x - 12, y + h, w + 24, 12, 5);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(70, 100, 108, 0.2)';
+  round(ctx, x - 8, y + h + 12, w + 20, 7, 4);
+  ctx.fill();
+}
+
+/**
+ * The cabinet the medicine comes out of.
+ *
+ * @param ctx where to draw
+ * @param x left edge
+ * @param y top edge
+ */
+function cabinet(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+  ctx.fillStyle = 'rgba(60, 90, 96, 0.18)';
+  round(ctx, x + 6, y + 8, 112, 168, 10);
+  ctx.fill();
+  ctx.fillStyle = '#f6fbfb';
+  round(ctx, x, y, 112, 168, 10);
+  ctx.fill();
+  ctx.strokeStyle = '#a9c6cb';
+  ctx.lineWidth = 4;
+  round(ctx, x, y, 112, 168, 10);
+  ctx.stroke();
+
+  // Two shelves of jars.
+  for (const [row, jars] of [[0, ['#ef8b8b', '#8fd0ee', '#f2cf6a']], [1, ['#a7dba0', '#c9a6e0']]] as [number, string[]][]) {
+    const shelfY = y + 62 + row * 62;
+    ctx.fillStyle = '#dceaec';
+    ctx.fillRect(x + 8, shelfY, 96, 6);
+    jars.forEach((tint, i) => {
+      const jx = x + 22 + i * 30;
+      ctx.fillStyle = tint;
+      round(ctx, jx - 11, shelfY - 34, 22, 34, 5);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(60, 90, 96, 0.5)';
+      ctx.lineWidth = 2.5;
+      round(ctx, jx - 11, shelfY - 34, 22, 34, 5);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      round(ctx, jx - 7, shelfY - 30, 6, 20, 3);
+      ctx.fill();
+    });
+  }
+
+  // A red cross on the door, which every child already reads.
+  ctx.fillStyle = '#e0453c';
+  round(ctx, x + 46, y + 12, 20, 34, 5);
+  ctx.fill();
+  round(ctx, x + 39, y + 19, 34, 20, 5);
+  ctx.fill();
+}
+
+/**
+ * The height chart on the wall. It is only scenery, but a room with nothing on
+ * the walls is a stage set.
+ *
+ * @param ctx where to draw
+ * @param x centre
+ * @param y top
+ */
+function chart(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+  ctx.fillStyle = '#fdfaf0';
+  round(ctx, x - 16, y, 32, 250, 6);
+  ctx.fill();
+  ctx.strokeStyle = '#c9b48c';
+  ctx.lineWidth = 3;
+  round(ctx, x - 16, y, 32, 250, 6);
+  ctx.stroke();
+  ctx.strokeStyle = '#c9b48c';
+  ctx.lineWidth = 2.5;
+  for (let i = 1; i < 13; i++) {
+    const ty = y + i * 19;
+    ctx.beginPath();
+    ctx.moveTo(x - 16, ty);
+    ctx.lineTo(x - (i % 2 ? 4 : 2), ty);
+    ctx.stroke();
+  }
+}
+
+/**
+ * @param ctx where to draw
+ * @param x the pot's centre
+ * @param y the pot's top
+ */
+function plant(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+  ctx.fillStyle = '#5fa34a';
+  for (const [dx, dy, r, rot] of [
+    [-34, -46, 30, -0.7],
+    [0, -66, 26, 0],
+    [34, -44, 28, 0.7],
+    [-18, -18, 24, -0.4],
+    [20, -16, 24, 0.4],
+  ] as [number, number, number, number][]) {
+    ctx.save();
+    ctx.translate(x + dx, y + dy);
+    ctx.rotate(rot);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, r, r * 0.52, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.fillStyle = 'rgba(40, 90, 40, 0.25)';
+  ctx.beginPath();
+  ctx.ellipse(x + 6, y + 78, 46, 12, 0, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = '#d98f5a';
+  ctx.beginPath();
+  ctx.moveTo(x - 34, y);
+  ctx.lineTo(x + 34, y);
+  ctx.lineTo(x + 26, y + 74);
+  ctx.lineTo(x - 26, y + 74);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255, 226, 190, 0.45)';
+  ctx.beginPath();
+  ctx.moveTo(x - 30, y + 8);
+  ctx.lineTo(x - 16, y + 8);
+  ctx.lineTo(x - 20, y + 68);
+  ctx.lineTo(x - 26, y + 68);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#c07a45';
+  round(ctx, x - 38, y - 8, 76, 16, 5);
+  ctx.fill();
+}
+
+/** The couch the patient sits on, with legs and a paper roll. */
+function couch(ctx: CanvasRenderingContext2D): void {
+  // Its shadow on the floor first.
+  ctx.fillStyle = 'rgba(90, 70, 40, 0.22)';
+  ctx.beginPath();
+  ctx.ellipse(362, 468, 232, 26, 0, 0, TAU);
   ctx.fill();
 
-  // The couch.
-  ctx.fillStyle = '#7fb8c9';
-  round(ctx, 130, 380, 440, 74, 18);
+  // Legs.
+  ctx.fillStyle = '#4d7f8c';
+  round(ctx, 176, 448, 30, 34, 6);
   ctx.fill();
-  ctx.fillStyle = '#a8d6e2';
-  round(ctx, 142, 388, 416, 22, 11);
+  round(ctx, 494, 448, 30, 34, 6);
   ctx.fill();
-  ctx.fillStyle = '#5d94a5';
-  round(ctx, 168, 448, 34, 32, 8);
+
+  // The padded top.
+  const pad = ctx.createLinearGradient(0, 384, 0, 452);
+  pad.addColorStop(0, '#a8dbe6');
+  pad.addColorStop(1, '#6ba9b8');
+  ctx.fillStyle = pad;
+  round(ctx, 130, 384, 440, 68, 18);
   ctx.fill();
-  round(ctx, 498, 448, 34, 32, 8);
+  ctx.strokeStyle = 'rgba(40, 80, 90, 0.55)';
+  ctx.lineWidth = 4;
+  round(ctx, 130, 384, 440, 68, 18);
+  ctx.stroke();
+  // Light along the top edge, shadow along the bottom.
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+  round(ctx, 142, 390, 416, 12, 6);
   ctx.fill();
-  ctx.fillStyle = '#e9f1ee';
-  ctx.fillRect(0, 454, W, H - 454);
+  ctx.fillStyle = 'rgba(30, 70, 80, 0.18)';
+  round(ctx, 142, 436, 416, 10, 5);
+  ctx.fill();
+  // The paper roll along it.
+  ctx.fillStyle = '#fdfaf2';
+  round(ctx, 196, 380, 310, 16, 6);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(40, 80, 90, 0.35)';
+  ctx.lineWidth = 2.5;
+  round(ctx, 196, 380, 310, 16, 6);
+  ctx.stroke();
 }
 
 /**
@@ -122,6 +359,13 @@ export function drawPatient(
   ctx.translate(0, breathe);
   ctx.lineWidth = 5;
   ctx.strokeStyle = INK;
+
+  // Its shadow on the couch, so it is sitting on something rather than in
+  // front of it. Offset down and right, like every other shadow here.
+  ctx.fillStyle = 'rgba(30, 70, 80, 0.22)';
+  ctx.beginPath();
+  ctx.ellipse(362, 430, 150, 22, 0, 0, TAU);
+  ctx.fill();
 
   // Feet, below the body rather than behind it. Tucked in at the old height
   // the belly covered them, and the sore paw -- the thing the child has to aim
@@ -192,6 +436,16 @@ export function drawPatient(
   ctx.beginPath();
   ctx.ellipse(350, 326, 70, 66, 0, 0, TAU);
   ctx.fill();
+  // A light along the top left of the belly and a shadow under it: the same
+  // lamp that lights the room lights the animal.
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+  ctx.beginPath();
+  ctx.ellipse(316, 274, 52, 26, -0.5, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(40, 30, 20, 0.12)';
+  ctx.beginPath();
+  ctx.ellipse(392, 386, 74, 24, 0.2, 0, TAU);
+  ctx.fill();
 
   // Arms.
   ctx.fillStyle = coat[1];
@@ -212,6 +466,15 @@ export function drawPatient(
   else ctx.ellipse(350, 152, 96, 92, 0, 0, TAU);
   ctx.fill();
   ctx.stroke();
+  // Rim light along the top left of the head.
+  ctx.save();
+  ctx.globalAlpha = 0.4;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 7;
+  ctx.beginPath();
+  ctx.ellipse(350, 152, 88, 84, 0, Math.PI * 1.05, Math.PI * 1.62);
+  ctx.stroke();
+  ctx.restore();
 
   if (animal === 'frog') {
     for (const sx of [-1, 1]) {
