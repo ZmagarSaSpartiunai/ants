@@ -30,11 +30,11 @@ test('each mounted path gets its own connections', async () => {
   resetSockets();
   const seen: string[] = [];
   mountSocket('/ants/ws', () => seen.push('ants'));
-  mountSocket('/kaka/pigeons/ws', () => seen.push('pigeons'));
+  mountSocket('/pigeons/ws', () => seen.push('pigeons'));
   const { port, http } = await listen();
 
   (await opened(`ws://127.0.0.1:${port}/ants/ws`)).close();
-  (await opened(`ws://127.0.0.1:${port}/kaka/pigeons/ws`)).close();
+  (await opened(`ws://127.0.0.1:${port}/pigeons/ws`)).close();
 
   assert.deepEqual(seen, ['ants', 'pigeons']);
   http.close();

@@ -59,13 +59,11 @@ function card(game: Game): string {
 }
 
 /**
- * @param shelf the shelf's own title, or null for the root shelf
- * @param games the cards that belong on it
+ * @param games every game on this box
  * @return a complete html document
  */
-export function renderShelf(shelf: string | null, games: Game[]): string {
-  const title = shelf ?? 'Ігри';
-  const back = shelf ? '<a class="back" href="/">← до всіх ігор</a>' : '';
+export function renderShelf(games: Game[]): string {
+  const title = 'Ігри';
 
   return `<!doctype html>
 <html lang="uk">
@@ -99,11 +97,6 @@ export function renderShelf(shelf: string | null, games: Game[]): string {
       #141a10;
   }
   main { width: min(760px, 100%); }
-  .back {
-    display: inline-block; margin-bottom: 14px; color: #9d9384;
-    text-decoration: none; font-size: 14px;
-  }
-  .back:hover { color: #ffd57a; }
   h1 { margin: 0 0 6px; font-size: clamp(28px, 6vw, 40px); letter-spacing: 0.01em; }
   .sub { margin: 0 0 28px; color: #9d9384; }
 
@@ -170,7 +163,6 @@ export function renderShelf(shelf: string | null, games: Game[]): string {
 </head>
 <body>
 <main>
-  ${back}
   <h1>${esc(title)}</h1>
   <p class="sub">Робочі збірки. Тут вони живуть, поки не поїдуть на портали.</p>
 

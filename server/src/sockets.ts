@@ -14,7 +14,7 @@ const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 });
 const routes = new Map<string, (ws: WebSocket, req: IncomingMessage) => void>();
 
 /**
- * @param path exact pathname, e.g. '/kaka/pigeons/ws'
+ * @param path exact pathname, e.g. '/pigeons/ws'
  * @param onConnect called once per accepted socket
  * @return void
  */

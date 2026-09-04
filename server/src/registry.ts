@@ -18,9 +18,7 @@ export type Kind =
   /** A built client: a folder with index.html and hashed assets. */
   | 'bundle'
   /** A single self-contained html file, like Luna. */
-  | 'single'
-  /** A shelf: a page listing other games, with no game of its own. */
-  | 'shelf';
+  | 'single';
 
 export interface Game {
   id: string;
@@ -33,8 +31,6 @@ export interface Game {
   path: string;
   kind: Kind;
   tier: Tier;
-  /** Which shelf the card sits on; null means the root shelf. */
-  shelf: string | null;
   /** Whether the game wants a socket mounted under its path. */
   multiplayer: boolean;
   /** Environment variable naming the folder, when it is not built in place. */
@@ -89,7 +85,6 @@ export const GAMES: Game[] = [
     path: '/ants',
     kind: 'bundle',
     tier: 'free',
-    shelf: null,
     multiplayer: true,
     cover: ['rgba(150, 200, 110, 0.38)', '#3f6a31', '#24401d'],
     note: 'грається',
@@ -104,7 +99,6 @@ export const GAMES: Game[] = [
     path: '/luna',
     kind: 'single',
     tier: 'free',
-    shelf: null,
     multiplayer: false,
     rootEnv: 'LUNA_ROOT',
     cover: ['rgba(196, 168, 232, 0.38)', '#241d33', '#100d18'],
@@ -112,28 +106,13 @@ export const GAMES: Game[] = [
     ages: [6, 99],
   },
   {
-    id: 'kaka',
-    title: 'Какульки',
-    blurb: 'Ціла полиця ігор про те саме.',
-    icon: '💩',
-    path: '/kaka',
-    kind: 'shelf',
-    tier: 'free',
-    shelf: null,
-    multiplayer: false,
-    cover: ['rgba(214, 160, 92, 0.34)', '#5a4326', '#2e2113'],
-    note: 'полиця',
-    ages: [5, 12],
-  },
-  {
     id: 'potty',
     title: 'На горщик!',
     blurb: 'Веди горщик і лови все, що падає. Рахуємо вголос.',
     icon: '🚽',
-    path: '/kaka/potty',
+    path: '/potty',
     kind: 'bundle',
     tier: 'free',
-    shelf: 'kaka',
     multiplayer: false,
     cover: ['rgba(143, 211, 232, 0.4)', '#2f86a8', '#17475c'],
     note: 'малюкам',
@@ -145,10 +124,9 @@ export const GAMES: Game[] = [
     title: 'Голуби',
     blurb: 'Обери, що з’їсти, і цілься. Вітер заважає.',
     icon: '🕊️',
-    path: '/kaka/pigeons',
+    path: '/pigeons',
     kind: 'bundle',
     tier: 'free',
-    shelf: 'kaka',
     multiplayer: true,
     cover: ['rgba(140, 190, 220, 0.34)', '#3d5a70', '#1d2b38'],
     note: 'у роботі',
@@ -157,17 +135,11 @@ export const GAMES: Game[] = [
 ];
 
 /**
- * Longest path first, so a game nested inside a shelf is found before the
- * shelf that contains it.
- */
-const BY_DEPTH = [...GAMES].sort((a, b) => b.path.length - a.path.length);
-
-/**
  * @param pathname the request path
  * @return the game that owns it, or null
  */
 export function findGame(pathname: string): Game | null {
-  for (const game of BY_DEPTH) {
+  for (const game of GAMES) {
     // Exact, or a real segment below it. Without the slash test '/antsomething'
     // would be served by '/ants'.
     if (pathname === game.path || pathname.startsWith(`${game.path}/`)) return game;
@@ -182,12 +154,4 @@ export function findGame(pathname: string): Game | null {
  */
 export function socketPath(game: Game): string {
   return `${game.path}/ws`;
-}
-
-/**
- * @param shelf the shelf id, or null for the root shelf
- * @return the cards that belong on it, in catalogue order
- */
-export function shelfFor(shelf: string | null): Game[] {
-  return GAMES.filter((g) => g.shelf === shelf);
 }

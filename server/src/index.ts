@@ -9,7 +9,7 @@ import { Room } from './room.js';
 import { sanitizeName } from './lobby.js';
 import { closeDb, initDb } from './db.js';
 import { gateEnabled, handleGate, hasPass } from './gate.js';
-import { findGame, GAMES, Game, shelfFor, socketPath } from './registry.js';
+import { findGame, GAMES, Game, socketPath } from './registry.js';
 import { renderShelf } from './shelf.js';
 import { attachUpgrade, mountSocket } from './sockets.js';
 
@@ -57,7 +57,6 @@ function rootFor(game: Game): string | null {
  * @return whether its files are on this box
  */
 function available(game: Game): boolean {
-  if (game.kind === 'shelf') return shelfFor(game.id).some(available);
   const root = rootFor(game);
 
   return !!root && existsSync(root);
@@ -78,12 +77,12 @@ function serveStatic(req: IncomingMessage, res: ServerResponse): void {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const game = findGame(url.pathname);
 
-  // No game owns this path, or the game is itself a shelf: draw the shelf.
-  if (!game || game.kind === 'shelf') {
+  // Nothing owns this path: draw the shelf. Every game sits on it -- one lobby,
+  // no categories, so a game is never a click deeper than any other.
+  if (!game) {
     // Only what is actually on this box. A card whose files were never deployed
     // would be a link straight into a 404, which reads as a broken game.
-    const cards = shelfFor(game ? game.id : null).filter(available);
-    const html = renderShelf(game ? game.title : null, cards);
+    const html = renderShelf(GAMES.filter(available));
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
     res.end(html);
 

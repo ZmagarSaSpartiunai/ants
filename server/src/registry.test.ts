@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AGE_BANDS, bandFits, GAMES, findGame, shelfFor, socketPath } from './registry.js';
+import { AGE_BANDS, bandFits, GAMES, findGame, socketPath } from './registry.js';
 
 test('every game has a unique id and a unique path', () => {
   const ids = new Set(GAMES.map((g) => g.id));
@@ -23,11 +23,12 @@ test('a game is found by its own path and by anything under it', () => {
   assert.equal(findGame('/ants/assets/index.js')?.id, 'ants');
 });
 
-test('a longer path wins, so a game can live inside a shelf', () => {
-  // '/kaka' is a shelf and '/kaka/pigeons' a game inside it. A plain prefix
-  // scan would hand '/kaka/pigeons/' to the shelf and never reach the game.
-  assert.equal(findGame('/kaka/pigeons/')?.id, 'pigeons');
-  assert.equal(findGame('/kaka/')?.id, 'kaka');
+test('every game sits in the one lobby, none a click deeper', () => {
+  // One shelf, no categories. A game behind a category card is a game most
+  // people never open, and the catalogue is too small to need sorting.
+  for (const game of GAMES) {
+    assert.equal(game.path.split('/').length, 2, `${game.id} is nested at ${game.path}`);
+  }
 });
 
 test('a near miss is not a match', () => {
@@ -36,25 +37,7 @@ test('a near miss is not a match', () => {
 });
 
 test('a multiplayer game gets a socket path under its own path', () => {
-  assert.equal(socketPath({ ...GAMES[0], path: '/kaka/pigeons' }), '/kaka/pigeons/ws');
-});
-
-test('the shelf lists what belongs to it, not the whole catalogue', () => {
-  const root = shelfFor(null).map((g) => g.id);
-  const kaka = shelfFor('kaka').map((g) => g.id);
-
-  assert.ok(root.includes('ants'), 'the root shelf should carry the top-level games');
-  assert.ok(!root.includes('pigeons'), 'a game inside a shelf must not also sit on the root');
-  assert.ok(kaka.includes('pigeons'));
-});
-
-test('a paid game stays on the shelf so it can be seen and wanted', () => {
-  // The child seeing a locked card is the whole point: a hidden game sells
-  // nothing. Access is decided later, by entitlements, not by hiding.
-  const paid = GAMES.filter((g) => g.tier === 'paid');
-  for (const game of paid) {
-    assert.ok(shelfFor(game.shelf).some((g) => g.id === game.id), `${game.id} vanished from its shelf`);
-  }
+  assert.equal(socketPath({ ...GAMES[0], path: '/pigeons' }), '/pigeons/ws');
 });
 
 test('every game says who it is for, and says it sanely', () => {

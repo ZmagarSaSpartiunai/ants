@@ -1,10 +1,10 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  // Served under /kaka/pigeons/ on the games host, so the bundle has to look
+  // Served under /pigeons/ on the games host, so the bundle has to look
   // for its own files there. Built for the root it would ask for /assets/...
   // and get a shelf page back instead.
-  base: '/kaka/pigeons/',
+  base: '/pigeons/',
   build: {
     target: 'es2022',
     // One bundle, everything inlined: the game must survive being dropped on a
