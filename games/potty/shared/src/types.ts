@@ -27,6 +27,8 @@ export const TOILET_X = 748;
 export const TOILET_W = 86;
 /** How long emptying takes. The potty catches nothing while it lasts. */
 export const FLUSH_TIME = 1.05;
+/** Where the potty stands to pour: beside the toilet, not on top of it. */
+export const POUR_X = TOILET_X - 54;
 /** Nothing is dropped past here, or it would fall onto the toilet. */
 export const DROP_MAX_X = 690;
 

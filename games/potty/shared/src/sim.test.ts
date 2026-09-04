@@ -10,6 +10,7 @@ import {
   POTTY_W,
   PottyState,
   SEATS,
+  POUR_X,
   STARS_PER_LEVEL,
   TOILET_X,
 } from './types.js';
@@ -276,4 +277,21 @@ test('the busy game is reached in a couple of minutes, not ten', () => {
     STARS_PER_LEVEL * perStar;
 
   assert.ok(catchesToFullFence <= 30, `${catchesToFullFence} catches before the fence is full`);
+});
+
+test('the potty walks to the pouring spot rather than jumping to it', () => {
+  // It used to be snapped to the toilet the instant the flush began, which is
+  // a sideways teleport at the exact moment the child is watching it.
+  const s = createGame(1);
+  s.held = POTTY_CAP;
+  s.pottyX = TOILET_X - 200;
+  const before = s.pottyX;
+  step(s, 1 / 60, TOILET_X);
+  const first = s.pottyX;
+
+  assert.ok(first - before < 20, `jumped ${first - before} units in one frame`);
+  // Half a second in, still flushing, and standing where it pours from.
+  for (let i = 0; i < 36; i++) step(s, 1 / 60, TOILET_X);
+  assert.ok(s.flushing > 0, 'the flush was over before this could be checked');
+  assert.ok(Math.abs(s.pottyX - POUR_X) < 2, `poured from ${s.pottyX}, not beside the toilet`);
 });

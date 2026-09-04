@@ -140,9 +140,10 @@ export class View {
 
     for (const drop of s.drops) drawDrop(ctx, drop, look.time);
     drawPotty(ctx, s, look);
+    if (s.flushing > 0) drawPour(ctx, s, look.time);
     for (const sp of look.sparkles) drawSparkle(ctx, sp);
     drawStars(ctx, s.stars, look.starPop);
-    if (s.held > 0) drawScore(ctx, s.held, look.pop);
+    if (s.held > 0 && s.flushing <= 0) drawScore(ctx, s.held, look.pop);
 
     ctx.restore();
   }
@@ -566,15 +567,18 @@ function drawFly(ctx: CanvasRenderingContext2D, fly: Fly, time: number): void {
 function drawPotty(ctx: CanvasRenderingContext2D, st: PottyState, look: Look): void {
   const x = st.pottyX;
   const full = st.held >= POTTY_CAP;
-  // Tips over the bowl as it empties, and rights itself at the end.
+  // Leans over the bowl, holds there while it pours, and rights itself.
+  // A single sine threw it almost upside down and then whipped it back, which
+  // read as the potty being dropped rather than emptied.
   const flush = st.flushing > 0 ? 1 - st.flushing / FLUSH_TIME : 0;
-  const tip = Math.sin(Math.min(1, flush * 1.6) * Math.PI) * 0.9;
+  const pour = flush <= 0 ? 0 : flush < 0.28 ? flush / 0.28 : flush < 0.74 ? 1 : Math.max(0, 1 - (flush - 0.74) / 0.26);
+  const tip = pour * 0.72;
   ctx.save();
   // Placed so the rim sits on the line the rules actually catch at. Drawn
   // lower, the pot swallowed things that visibly passed above it.
-  ctx.translate(x, FLOOR_Y - 6 - tip * 26);
+  ctx.translate(x, FLOOR_Y - 6 - tip * 15);
   // Leans into the run and bounces when it swallows one.
-  ctx.rotate(-look.lean * 0.16 + tip * 1.5);
+  ctx.rotate(-look.lean * 0.16 + tip);
   const gulp = look.gulp;
   ctx.translate(0, -gulp * 6);
   ctx.scale(1 + gulp * 0.14, 1 - gulp * 0.12);
@@ -671,7 +675,9 @@ function drawPotty(ctx: CanvasRenderingContext2D, st: PottyState, look: Look): v
 
   // What is in it, heaped above the rim. A level hidden inside an opaque pot
   // is a number the child cannot see, and this game has no numbers to read.
-  const shown = st.flushing > 0 ? Math.max(0, st.held * (1 - flush * 1.8)) : st.held;
+  // Pours out over the middle of the lean rather than blinking away.
+  const emptied = flush <= 0 ? 0 : Math.max(0, Math.min(1, (flush - 0.26) / 0.34));
+  const shown = st.held * (1 - emptied);
   // A heap, not a stack: two on the bottom row, then the rest on top of them.
   // Piled straight up they overlapped into one brown lump and the child could
   // not see how many were in there.
@@ -691,6 +697,35 @@ function drawPotty(ctx: CanvasRenderingContext2D, st: PottyState, look: Look): v
   ctx.ellipse(-half + 17, 6, 5, 16, 0.1, 0, TAU);
   ctx.fill();
   ctx.restore();
+}
+
+/**
+ * What comes out of the tipped potty on its way into the bowl.
+ *
+ * Drawn upright in the world rather than inside the potty's own tipped frame:
+ * what is falling does not lean just because the thing it fell out of does.
+ *
+ * @param ctx where to draw
+ * @param st the game
+ * @param time seconds, for the tumble
+ */
+function drawPour(ctx: CanvasRenderingContext2D, st: PottyState, time: number): void {
+  const flush = 1 - st.flushing / FLUSH_TIME;
+  if (flush < 0.24 || flush > 0.72) return;
+  const p = (flush - 0.24) / 0.48;
+  const from = { x: st.pottyX + 34, y: FLOOR_Y - 40 };
+  const to = { x: TOILET_X, y: FLOOR_Y - 48 };
+  for (let i = 0; i < st.held; i++) {
+    // Staggered, so it is a stream and not a single lump changing address.
+    const q = p * 1.6 - i * 0.2;
+    if (q <= 0 || q >= 1) continue;
+    ctx.save();
+    ctx.translate(from.x + (to.x - from.x) * q, from.y + (to.y - from.y) * q - Math.sin(q * Math.PI) * 26);
+    ctx.rotate(time * 5 + i);
+    ctx.scale(0.5, 0.5);
+    poo(ctx, 1);
+    ctx.restore();
+  }
 }
 
 /**

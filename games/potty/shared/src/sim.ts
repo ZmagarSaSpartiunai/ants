@@ -10,6 +10,7 @@ import {
   POTTY_CAP,
   POTTY_SPEED,
   POTTY_W,
+  POUR_X,
   PottyState,
   SEATS,
   STARS_PER_LEVEL,
@@ -124,9 +125,11 @@ export function step(s: PottyState, dt: number, aimX: number): Event[] {
   s.time += dt;
 
   if (s.flushing > 0) {
-    // Parked over the toilet with its hands full. This is the cost of the trip
-    // and the only real decision in the game: when to make it.
-    s.pottyX = TOILET_X;
+    // Walks the last stretch to the pouring spot instead of being teleported
+    // there: snapping to the toilet made the potty jump sideways at the very
+    // moment the child was watching it most closely.
+    const gap = POUR_X - s.pottyX;
+    s.pottyX += Math.sign(gap) * Math.min(POTTY_SPEED * dt, Math.abs(gap));
     s.flushing -= dt;
     if (s.flushing <= 0) {
       s.flushing = 0;
