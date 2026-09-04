@@ -26,9 +26,47 @@ export const GRAVITY = 300;
  *
  * Counting pieces was a lie: a cow and a hamster are not the same amount, and
  * a child can see that they are not. Ten is small enough to count to and big
- * enough that a cow fills the pot on its own.
+ * enough that a cow fills the pot on its own -- which is the hardest setting.
  */
 export const POTTY_CAP = 10;
+
+export type Level = 'easy' | 'normal' | 'hard';
+
+/** Everything a difficulty changes. Nothing else in the rules varies. */
+export interface Rules {
+  /** How much the potty holds. This is the one that decides how it feels. */
+  cap: number;
+  /** How long an animal waits, by how many times it has been failed. */
+  wait: number[];
+  /** Seconds between one animal starting to ask and the next. */
+  urgeGap: number;
+  /** The most animals that may be asking at once. */
+  maxUrges: number;
+  /** How many times each animal has to go before it is happy. */
+  goal: number;
+}
+
+/**
+ * Three settings, and the big potty is what makes the easy one easy.
+ *
+ * Every other number here only shaves the edges. The trips to the toilet are
+ * what a small child actually struggles with: each one is several seconds
+ * during which somebody else's clock is running, and a pot half the size means
+ * twice as many of them.
+ */
+export const RULES: Record<Level, Rules> = {
+  easy: { cap: 20, wait: [6, 6.5, 6.5], urgeGap: 3, maxUrges: 1, goal: 3 },
+  normal: { cap: 14, wait: [4.6, 5.5, 5.5], urgeGap: 2.3, maxUrges: 2, goal: 4 },
+  hard: { cap: POTTY_CAP, wait: [3.4, 5, 5], urgeGap: 1.9, maxUrges: 2, goal: 5 },
+};
+
+export const LEVELS: Level[] = ['easy', 'normal', 'hard'];
+
+export const LEVEL_NAME: Record<Level, string> = {
+  easy: 'Легко',
+  normal: 'Звичайно',
+  hard: 'Важко',
+};
 /** Where the toilet stands, and how wide its target is. */
 export const TOILET_X = 748;
 export const TOILET_W = 86;
@@ -37,22 +75,8 @@ export const FLUSH_TIME = 1.05;
 /** Where the potty stands to pour: beside the toilet, not on top of it. */
 export const POUR_X = TOILET_X - 54;
 
-/** How many times each animal has to go before it is happy and stops asking. */
-export const GOAL = 5;
 /** Three ignored urges and it bursts. The third is the one that does it. */
 export const STRIKES = 3;
-/**
- * How long an animal will wait, by how many times it has already been failed.
- *
- * The first wait is the gentle one. After that the face goes red and the clock
- * is the same five seconds every time, so the rule stops changing underneath a
- * child who has just learnt it.
- */
-export const WAIT: number[] = [3.4, 5, 5];
-/** The most animals that may be asking at once. */
-export const MAX_URGES = 2;
-/** Seconds between one animal starting to ask and the next. */
-export const URGE_GAP = 1.9;
 
 /** Where the animals sit, left to right along the fence. */
 export const SEATS: { x: number; y: number }[] = [
@@ -122,6 +146,8 @@ export interface Splat {
 
 export interface PottyState {
   seed: number;
+  level: Level;
+  rules: Rules;
   /** Seconds since the game began. */
   time: number;
   /** Where the potty is, its centre. */

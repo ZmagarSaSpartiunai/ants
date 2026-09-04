@@ -1,4 +1,16 @@
-import { createGame, FIELD_W, FLOOR_Y, PottyState, SEATS, step, TOILET_X } from '@potty/shared';
+import {
+  createGame,
+  FIELD_H,
+  FIELD_W,
+  FLOOR_Y,
+  Level,
+  LEVEL_NAME,
+  LEVELS,
+  PottyState,
+  SEATS,
+  step,
+  TOILET_X,
+} from '@potty/shared';
 import { Fly, Look, Sparkle, View } from './render.js';
 import { boom, chime, fanfare, flush, full, groan, plop, say, sad, setSound, soundOn, splat, unlock, warn } from './audio.js';
 import './style.css';
@@ -20,10 +32,31 @@ const doneTitle = document.getElementById('doneTitle') as HTMLElement;
 const doneSub = document.getElementById('doneSub') as HTMLElement;
 const playBtn = document.getElementById('play') as HTMLButtonElement;
 const againBtn = document.getElementById('again') as HTMLButtonElement;
+const changeBtn = document.getElementById('change') as HTMLButtonElement;
+const levelsBox = document.getElementById('levels') as HTMLDivElement;
 const soundBtn = document.getElementById('sound') as HTMLButtonElement;
 
 const view = new View(canvas);
-let state: PottyState = createGame(Math.floor(Math.random() * 1e9));
+
+/**
+ * Easy by default. The player this is built for is three, and the setting
+ * they meet first should be the one they can finish.
+ */
+const LEVEL_KEY = 'potty.level';
+
+function savedLevel(): Level {
+  try {
+    const raw = localStorage.getItem(LEVEL_KEY);
+    if (raw && (LEVELS as string[]).includes(raw)) return raw as Level;
+  } catch (e) {
+    // Private browsing refuses even to be read from.
+  }
+
+  return 'easy';
+}
+
+let level = savedLevel();
+let state: PottyState = createGame(Math.floor(Math.random() * 1e9), level);
 let running = false;
 let aim = FIELD_W / 2;
 let lastX = aim;
@@ -38,6 +71,7 @@ const look: Look = {
   booms: new Map(),
   cheers: new Map(),
   arrivals: new Map(),
+  smears: [],
 };
 
 function point(clientX: number): void {
@@ -54,22 +88,62 @@ canvas.addEventListener('pointermove', (e) => {
   point(e.clientX);
 });
 
-playBtn.addEventListener('click', () => {
-  unlock();
-  startPanel.hidden = true;
-  running = true;
+/**
+ * The three buttons are built once and only their pressed state changes.
+ *
+ * Rebuilding them on every press throws away the very button the finger is on,
+ * which is exactly how the ants HUD ended up with buttons that looked alive
+ * and did nothing.
+ */
+const levelButtons = LEVELS.map((id) => {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = LEVEL_NAME[id];
+  b.addEventListener('click', () => {
+    level = id;
+    try {
+      localStorage.setItem(LEVEL_KEY, id);
+    } catch (e) {
+      // Nothing to do about it; the choice simply will not be remembered.
+    }
+    showLevel();
+  });
+  levelsBox.append(b);
+
+  return [id, b] as const;
 });
 
-againBtn.addEventListener('click', () => {
-  state = createGame(Math.floor(Math.random() * 1e9));
+function showLevel(): void {
+  for (const [id, b] of levelButtons) b.setAttribute('aria-pressed', String(id === level));
+}
+showLevel();
+
+/** Wipes the board and starts a fresh game at the chosen level. */
+function begin(): void {
+  state = createGame(Math.floor(Math.random() * 1e9), level);
   look.sparkles.length = 0;
   look.flies.length = 0;
   look.booms.clear();
   look.cheers.clear();
   look.arrivals.clear();
+  look.smears.length = 0;
+  startPanel.hidden = true;
   donePanel.hidden = true;
   running = true;
+}
+
+playBtn.addEventListener('click', () => {
+  unlock();
+  begin();
 });
+
+changeBtn.addEventListener('click', () => {
+  donePanel.hidden = true;
+  startPanel.hidden = false;
+  showLevel();
+});
+
+againBtn.addEventListener('click', begin);
 
 /**
  * @param won whether anybody was saved
@@ -116,6 +190,32 @@ function burst(x: number, y: number, n: number, tint: string): void {
   }
 }
 
+/**
+ * The mess a burst throws at the screen the player is looking through.
+ *
+ * Spread by distance from the bang rather than scattered evenly: near the
+ * animal it is dense and big, far away it is a few small specks. Even scatter
+ * read as random noise instead of as something having gone off in one place.
+ *
+ * @param from where it burst
+ */
+function splatScreen(from: { x: number; y: number }): void {
+  for (let i = 0; i < 10; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const d = Math.pow(Math.random(), 0.6);
+    look.smears.push({
+      x: from.x + Math.cos(a) * d * 520,
+      y: from.y + Math.sin(a) * d * 300 + 40,
+      r: 52 - d * 26 + Math.random() * 14,
+      seed: Math.random() * 6.3,
+      age: 0,
+      slid: 0,
+    });
+  }
+  // The oldest go first, or a losing game ends behind a solid brown wall.
+  while (look.smears.length > 20) look.smears.shift();
+}
+
 function frame(now: number): void {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
@@ -144,6 +244,7 @@ function frame(now: number): void {
         look.booms.set(event.seat, 0);
         boom();
         burst(SEATS[event.seat].x, SEATS[event.seat].y, 34, '#a9713c');
+        splatScreen(SEATS[event.seat]);
       } else if (event.t === 'full') {
         full();
       } else if (event.t === 'wake') {
@@ -179,6 +280,13 @@ function frame(now: number): void {
     const nextT = t + dt / 0.8;
     if (nextT >= 1) look.cheers.delete(seat);
     else look.cheers.set(seat, nextT);
+  }
+  for (let i = look.smears.length - 1; i >= 0; i--) {
+    const sm = look.smears[i];
+    sm.age += dt;
+    // Sticks for a moment, then gives way and runs, gathering pace.
+    if (sm.age > 0.8) sm.slid += (22 + sm.slid * 1.1) * dt;
+    if (sm.y + sm.slid > FIELD_H + 40) look.smears.splice(i, 1);
   }
   for (const [seat, t] of look.arrivals) {
     const nextT = t + dt / 0.6;

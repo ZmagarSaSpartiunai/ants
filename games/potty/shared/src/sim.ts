@@ -8,15 +8,14 @@ import {
   FIELD_W,
   FLOOR_Y,
   FLUSH_TIME,
-  GOAL,
   GRAVITY,
-  MAX_URGES,
-  POTTY_CAP,
+  Level,
   POTTY_SPEED,
   POTTY_W,
   POUR_X,
   PottyState,
   MIDDLING,
+  RULES,
   SEATS,
   SIZE,
   SMALL,
@@ -24,8 +23,6 @@ import {
   STRIKES,
   TOILET_W,
   TOILET_X,
-  URGE_GAP,
-  WAIT,
 } from './types.js';
 
 /** The most splats the floor will hold before the oldest is mopped away. */
@@ -87,18 +84,21 @@ export function castFor(seed: number): { cast: AnimalId[]; seed: number } {
  * @return how many animals have had their five
  */
 export function happyCount(s: PottyState): number {
-  return s.animals.filter((a) => a.pooped >= GOAL).length;
+  return s.animals.filter((a) => a.pooped >= s.rules.goal).length;
 }
 
 /**
  * @param seed anything; the same seed plays the same game
+ * @param level which difficulty to play
  * @return a game about to start
  */
-export function createGame(seed: number): PottyState {
+export function createGame(seed: number, level: Level = 'easy'): PottyState {
   const { cast, seed: after } = castFor(seed >>> 0);
 
   return {
     seed: after,
+    level,
+    rules: RULES[level],
     time: 0,
     pottyX: FIELD_W / 2,
     drops: [],
@@ -161,7 +161,7 @@ function busy(s: PottyState, a: Animal): boolean {
   if (!a.alive || a.asleep) return false;
   if (s.drops.some((d) => d.seat === a.seat)) return true;
 
-  return a.pooped < GOAL;
+  return a.pooped < s.rules.goal;
 }
 
 /**
@@ -170,7 +170,7 @@ function busy(s: PottyState, a: Animal): boolean {
  * @return whether what it would produce still fits
  */
 export function fits(s: PottyState, a: Animal): boolean {
-  return s.held + a.size <= POTTY_CAP;
+  return s.held + a.size <= s.rules.cap;
 }
 
 /**
@@ -275,7 +275,7 @@ export function step(s: PottyState, dt: number, aimX: number): Event[] {
     const want = Math.max(POTTY_W / 2, Math.min(FIELD_W - POTTY_W / 2, aimX));
     // Heavier the fuller it is, rather than in one step at the top: the child
     // should feel it filling, not discover it at the last piece.
-    const speed = POTTY_SPEED * (1 - (1 - LOADED) * (s.held / POTTY_CAP));
+    const speed = POTTY_SPEED * (1 - (1 - LOADED) * (s.held / s.rules.cap));
     const gap = want - s.pottyX;
     s.pottyX += Math.sign(gap) * Math.min(speed * dt, Math.abs(gap));
 
@@ -317,7 +317,7 @@ export function step(s: PottyState, dt: number, aimX: number): Event[] {
 
   // Somebody new starts asking.
   const asking = s.animals.filter((a) => a.urge !== null).length;
-  if (asking < MAX_URGES) {
+  if (asking < s.rules.maxUrges) {
     s.until -= dt;
     if (s.until <= 0) {
       // Nobody is asked while their last one is still in the air: counted on
@@ -326,15 +326,16 @@ export function step(s: PottyState, dt: number, aimX: number): Event[] {
         (a) =>
           busy(s, a) &&
           a.urge === null &&
-          a.pooped < GOAL &&
+          a.pooped < s.rules.goal &&
           !s.drops.some((d) => d.seat === a.seat),
       );
       if (free.length) {
         const a = free[Math.min(free.length - 1, Math.floor(roll(s) * free.length))];
-        a.urge = WAIT[Math.min(WAIT.length - 1, a.strikes)];
+        const wait = s.rules.wait;
+        a.urge = wait[Math.min(wait.length - 1, a.strikes)];
         out.push({ t: 'urge', seat: a.seat });
       }
-      s.until = URGE_GAP;
+      s.until = s.rules.urgeGap;
     }
   }
 
@@ -349,12 +350,12 @@ export function step(s: PottyState, dt: number, aimX: number): Event[] {
     if (d.y >= FLOOR_Y - 26 && overMouth && s.flushing <= 0) {
       s.drops.splice(i, 1);
       const a = s.animals[d.seat];
-      s.held = Math.min(POTTY_CAP, s.held + a.size);
+      s.held = Math.min(s.rules.cap, s.held + a.size);
       s.caught++;
       a.pooped++;
       out.push({ t: 'catch', held: s.held, seat: d.seat });
-      if (a.pooped >= GOAL) out.push({ t: 'happy', seat: d.seat });
-      if (jammed(s) || s.held >= POTTY_CAP) out.push({ t: 'full' });
+      if (a.pooped >= s.rules.goal) out.push({ t: 'happy', seat: d.seat });
+      if (jammed(s) || s.held >= s.rules.cap) out.push({ t: 'full' });
     } else if (d.y >= FLOOR_Y) {
       s.drops.splice(i, 1);
       s.missed++;

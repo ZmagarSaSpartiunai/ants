@@ -1,4 +1,4 @@
-import { createGame, POTTY_CAP, PottyState, SEATS } from '@potty/shared';
+import { createGame, Level, PottyState, SEATS } from '@potty/shared';
 import { Look, View } from './render.js';
 import './style.css';
 
@@ -22,6 +22,25 @@ document.body.append(stage);
 const view = new View(stage);
 view.resize();
 
+/** Made-up mess on the glass, at a chosen moment of its life. */
+function smearsAt(age: number, slid: number): Look['smears'] {
+  const out: Look['smears'] = [];
+  for (let i = 0; i < 13; i++) {
+    const a = (i / 13) * Math.PI * 2 + 0.7;
+    const d = 0.25 + ((i * 7) % 11) / 14;
+    out.push({
+      x: 320 + Math.cos(a) * d * 520,
+      y: 118 + Math.sin(a) * d * 300 + 40,
+      r: 52 - d * 26 + ((i * 5) % 13),
+      seed: (i * 1.7) % 6.3,
+      age,
+      slid,
+    });
+  }
+
+  return out;
+}
+
 function look(): Look {
   return {
     time: 1.2,
@@ -33,11 +52,12 @@ function look(): Look {
     booms: new Map(),
     cheers: new Map(),
     arrivals: new Map(),
+    smears: [],
   };
 }
 
 /** Each entry is a caption and something done to a fresh game. */
-const SCENES: [string, (s: PottyState) => void][] = [
+const SCENES: [string, (s: PottyState) => void, Level?, ((l: Look) => void)?][] = [
   ['початок: двоє, горщик порожній', () => undefined],
   [
     'смужка: зелене за впіймані, червоне за пропущені',
@@ -63,7 +83,7 @@ const SCENES: [string, (s: PottyState) => void][] = [
     'усі четверо, горщик повний, один щасливий і один при смерті',
     (s) => {
       for (const a of s.animals) a.asleep = false;
-      s.held = POTTY_CAP;
+      s.held = s.rules.cap;
       s.pottyX = 640;
       s.animals[0].pooped = 5;
       s.animals[1].strikes = 2;
@@ -72,6 +92,48 @@ const SCENES: [string, (s: PottyState) => void][] = [
       s.animals[2].alive = false;
       s.splats.push({ x: 200, y: 160, seed: 3 }, { x: 470, y: 240, seed: 5 });
     },
+  ],
+  [
+    'вибух: щойно ляпнуло в екран',
+    (s) => {
+      for (const a of s.animals) a.asleep = false;
+      s.animals[1].alive = false;
+    },
+    'hard',
+    (l) => {
+      l.smears.push(...smearsAt(0.1, 0));
+    },
+  ],
+  [
+    'вибух: за секунду — потекло',
+    (s) => {
+      for (const a of s.animals) a.asleep = false;
+      s.animals[1].alive = false;
+    },
+    'hard',
+    (l) => {
+      l.smears.push(...smearsAt(1.6, 26));
+    },
+  ],
+  [
+    'легкий рівень: горщик на двадцять, троє за мету',
+    (s) => {
+      s.held = 12;
+      s.pottyX = 360;
+      s.animals[1].pooped = 2;
+      s.animals[2].pooped = 1;
+      s.animals[2].strikes = 1;
+    },
+    'easy',
+  ],
+  [
+    'звичайний: горщик на чотирнадцять',
+    (s) => {
+      s.held = 9;
+      s.pottyX = 360;
+      s.animals[1].pooped = 3;
+    },
+    'normal',
   ],
 ];
 
@@ -84,10 +146,12 @@ const out = sheet.getContext('2d')!;
 out.fillStyle = '#0d1116';
 out.fillRect(0, 0, sheet.width, sheet.height);
 
-SCENES.forEach(([caption, setup], i) => {
-  const state = createGame(11 + i);
+SCENES.forEach(([caption, setup, level, dress], i) => {
+  const state = createGame(11 + i, level ?? 'hard');
   setup(state);
-  view.draw(state, look());
+  const l = look();
+  dress?.(l);
+  view.draw(state, l);
   const col = i % COLS;
   const row = Math.floor(i / COLS);
   out.drawImage(stage, col * CELL_W, row * CELL_H, CELL_W, CELL_H);

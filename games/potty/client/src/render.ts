@@ -6,17 +6,16 @@ import {
   FIELD_W,
   FLOOR_Y,
   FLUSH_TIME,
-  GOAL,
   POTTY_CAP,
   POTTY_W,
   PottyState,
+  Rules,
   SEATS,
   SIZE,
   Splat,
   STRIKES,
   TOILET_W,
   TOILET_X,
-  WAIT,
 } from '@potty/shared';
 
 /**
@@ -68,6 +67,25 @@ export interface Sparkle {
   tint: string;
 }
 
+/**
+ * One lump that hit the screen when an animal burst.
+ *
+ * It is not part of the game state: it belongs to the glass the player is
+ * looking through, not to the yard. What lands on the actual ground is a plain
+ * splat and is remembered by the rules; this is the mess on the lens, and it
+ * runs off.
+ */
+export interface Smear {
+  x: number;
+  y: number;
+  r: number;
+  seed: number;
+  /** Seconds since it landed. */
+  age: number;
+  /** How far down it has crept from where it hit. */
+  slid: number;
+}
+
 export interface Fly {
   x: number;
   y: number;
@@ -82,6 +100,8 @@ export interface Look {
   booms: Map<number, number>;
   /** Seats that have just arrived, 0 rising to 1. */
   arrivals: Map<number, number>;
+  /** What a burst threw at the screen. */
+  smears: Smear[];
   /** Seats that have just had their fifth, and how long ago. */
   cheers: Map<number, number>;
   /** How hard the potty is celebrating, 1 fading to 0. */
@@ -154,9 +174,9 @@ export class View {
       const boom = look.booms.get(a.seat);
       if (a.asleep) continue;
       const arriving = look.arrivals.get(a.seat);
-      if (a.alive) drawAnimal(ctx, SEATS[a.seat], a, look.time, look.cheers.get(a.seat), arriving);
-      drawProgress(ctx, SEATS[a.seat], a);
-      if (a.alive && a.urge !== null) drawAsk(ctx, SEATS[a.seat], a, look.time);
+      if (a.alive) drawAnimal(ctx, s.rules, SEATS[a.seat], a, look.time, look.cheers.get(a.seat), arriving);
+      drawProgress(ctx, s.rules, SEATS[a.seat], a);
+      if (a.alive && a.urge !== null) drawAsk(ctx, s.rules, SEATS[a.seat], a, look.time);
       if (boom !== undefined) drawBoom(ctx, SEATS[a.seat], boom);
     }
 
@@ -166,6 +186,7 @@ export class View {
     if (s.flushing > 0) drawPour(ctx, s, look.time);
     for (const sp of look.sparkles) drawSparkle(ctx, sp);
     if (s.held > 0 && s.flushing <= 0) drawScore(ctx, s.held, look.pop);
+    for (const smear of look.smears) drawSmear(ctx, smear);
 
     ctx.restore();
   }
@@ -287,6 +308,7 @@ function bakeRoom(): HTMLCanvasElement {
  */
 function drawAnimal(
   ctx: CanvasRenderingContext2D,
+  rules: Rules,
   seat: { x: number; y: number },
   a: Animal,
   time: number,
@@ -299,7 +321,7 @@ function drawAnimal(
   // How desperate it is: nothing at all until it asks, then rising as its own
   // clock runs down. The child's only warning is this, so it has to be legible
   // from across a room -- and it has to grow, not merely be on.
-  const wait = WAIT[Math.min(WAIT.length - 1, a.strikes)];
+  const wait = rules.wait[Math.min(rules.wait.length - 1, a.strikes)];
   const push = a.urge === null ? 0 : Math.max(0, Math.min(1, 1 - a.urge / wait));
   const shake = push > 0 ? Math.sin(time * (16 + push * 34)) * push * 3.2 : 0;
   const breathe = Math.sin(time * 1.6 + slot * 1.9) * 0.9;
@@ -391,9 +413,11 @@ function drawAnimal(
  */
 function drawProgress(
   ctx: CanvasRenderingContext2D,
+  rules: Rules,
   seat: { x: number; y: number },
   a: Animal,
 ): void {
+  const goal = rules.goal;
   const w = 74;
   const h = 11;
   const x = seat.x - w / 2;
@@ -407,7 +431,7 @@ function drawProgress(
 
   if (!dead) {
     // Green from the left: how many times it has been.
-    const got = (a.pooped / GOAL) * w;
+    const got = (a.pooped / goal) * w;
     if (got > 0) {
       ctx.save();
       round(ctx, x, y, w, h, h / 2);
@@ -437,10 +461,10 @@ function drawProgress(
   // The five notches, so the green is countable and not just a length.
   ctx.strokeStyle = 'rgba(58,40,32,0.28)';
   ctx.lineWidth = 1.2;
-  for (let i = 1; i < GOAL; i++) {
+  for (let i = 1; i < goal; i++) {
     ctx.beginPath();
-    ctx.moveTo(x + (i * w) / GOAL, y + 2);
-    ctx.lineTo(x + (i * w) / GOAL, y + h - 2);
+    ctx.moveTo(x + (i * w) / goal, y + 2);
+    ctx.lineTo(x + (i * w) / goal, y + h - 2);
     ctx.stroke();
   }
   ctx.restore();
@@ -461,11 +485,12 @@ function drawProgress(
  */
 function drawAsk(
   ctx: CanvasRenderingContext2D,
+  rules: Rules,
   seat: { x: number; y: number },
   a: Animal,
   time: number,
 ): void {
-  const wait = WAIT[Math.min(WAIT.length - 1, a.strikes)];
+  const wait = rules.wait[Math.min(rules.wait.length - 1, a.strikes)];
   const left = Math.max(0, Math.min(1, (a.urge ?? 0) / wait));
   const bob = Math.sin(time * 5) * 2;
   ctx.save();
@@ -750,8 +775,10 @@ export function pooScale(size: number): number {
  * @param s the game
  */
 function drawGauge(ctx: CanvasRenderingContext2D, s: PottyState): void {
-  const cells = POTTY_CAP;
-  const w = 9;
+  const cells = s.rules.cap;
+  // The easy potty holds twice as much, so the cells get thinner rather than
+  // the dial growing until it is wider than the yard.
+  const w = cells > 14 ? 6 : cells > 10 ? 8 : 9;
   const gap = 2;
   const total = cells * w + (cells - 1) * gap;
   // Right above the pot and travelling with it. Higher up it read as a piece
@@ -1111,6 +1138,115 @@ function drawToilet(
     ctx.fill();
     ctx.stroke();
   }
+  ctx.restore();
+}
+
+/**
+ * A hit on the glass the player is looking through.
+ *
+ * A splat is not a blob. What makes one read as thrown rather than placed is
+ * the outline: an off-centre body with arms shooting out of it, a few droplets
+ * that flew further than the rest, and a run starting underneath. Drawn as a
+ * neat lumpy circle it read as a piece of poo hanging in mid-air.
+ *
+ * World coordinates like everything else, so it letterboxes with the picture
+ * instead of floating over the black bars.
+ *
+ * @param ctx where to draw
+ * @param sm the smear
+ */
+function drawSmear(ctx: CanvasRenderingContext2D, sm: Smear): void {
+  // Lands hard and spreads, then settles: something thrown at glass flattens
+  // on impact, it does not arrive at its final shape.
+  const hit = Math.min(1, sm.age / 0.14);
+  const r = sm.r * (0.35 + 0.65 * hit);
+  const spread = 1 + (1 - hit) * 0.55;
+  const fade = Math.max(0, Math.min(1, (FIELD_H + 60 - (sm.y + sm.slid)) / 70));
+  // A pseudo-random but stable wobble, so each smear keeps its own shape.
+  const wob = (i: number): number => (Math.sin(sm.seed * 12.9898 + i * 78.233) + 1) / 2;
+
+  ctx.save();
+  ctx.globalAlpha = fade;
+  ctx.translate(sm.x, sm.y + sm.slid);
+
+  // The run below, which is what says "sliding down glass" and not "stuck on".
+  const run = Math.min(sm.r * 5, Math.max(0, sm.age - 0.35) * 34);
+  if (run > 3) {
+    const g = ctx.createLinearGradient(0, 0, 0, run + r * 0.4);
+    g.addColorStop(0, '#6b4520');
+    g.addColorStop(1, 'rgba(95,61,28,0.2)');
+    ctx.fillStyle = g;
+    for (const [off, wide] of [[-r * 0.18, 0.3], [r * 0.22, 0.22]] as [number, number][]) {
+      const len = run * (0.6 + wob(off) * 0.6);
+      ctx.beginPath();
+      ctx.moveTo(off - r * wide, 0);
+      ctx.lineTo(off + r * wide, 0);
+      ctx.quadraticCurveTo(off + r * wide * 0.5, len, off, len + r * 0.28);
+      ctx.quadraticCurveTo(off - r * wide * 0.5, len, off - r * wide, 0);
+      ctx.closePath();
+      ctx.fill();
+      // The drop about to let go of the end of the run.
+      ctx.beginPath();
+      ctx.ellipse(off, len + r * 0.3, r * 0.14, r * 0.2, 0, 0, TAU);
+      ctx.fill();
+    }
+  }
+
+  ctx.rotate(sm.seed);
+  ctx.scale(spread, 1 / spread);
+
+  const blob = ctx.createRadialGradient(-r * 0.3, -r * 0.35, r * 0.1, 0, 0, r * 1.15);
+  blob.addColorStop(0, '#b07c44');
+  blob.addColorStop(0.7, '#7a4f24');
+  blob.addColorStop(1, '#4e3116');
+  ctx.fillStyle = blob;
+
+  // Arms, drawn first so the body covers where they join it.
+  const arms = 5 + Math.floor(wob(1) * 4);
+  for (let i = 0; i < arms; i++) {
+    const a = (i / arms) * TAU + wob(i) * 0.8;
+    const len = r * (0.9 + wob(i + 30) * 1.3);
+    const halfWidth = r * (0.1 + wob(i + 60) * 0.13);
+    const cos = Math.cos(a);
+    const sin = Math.sin(a);
+    ctx.beginPath();
+    ctx.moveTo(-sin * halfWidth, cos * halfWidth);
+    ctx.quadraticCurveTo(cos * len * 0.6, sin * len * 0.6, cos * len, sin * len);
+    ctx.quadraticCurveTo(cos * len * 0.6, sin * len * 0.6, sin * halfWidth, -cos * halfWidth);
+    ctx.closePath();
+    ctx.fill();
+    // A bead at the tip, and one that flew clear of the rest.
+    ctx.beginPath();
+    ctx.arc(cos * len, sin * len, halfWidth * 0.8, 0, TAU);
+    ctx.fill();
+    if (wob(i + 90) > 0.55) {
+      const far = len * (1.35 + wob(i + 120) * 0.5);
+      ctx.beginPath();
+      ctx.arc(cos * far, sin * far, r * (0.07 + wob(i + 150) * 0.08), 0, TAU);
+      ctx.fill();
+    }
+  }
+
+  // The body: an outline whose radius wanders, not a circle.
+  ctx.beginPath();
+  const steps = 14;
+  for (let i = 0; i <= steps; i++) {
+    const a = (i / steps) * TAU;
+    const rad = r * (0.66 + wob(i + 7) * 0.42);
+    const x = Math.cos(a) * rad;
+    const y = Math.sin(a) * rad;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+
+  // Wet highlight, top left, the same rule as everything else in this game.
+  ctx.globalAlpha = fade * 0.42;
+  ctx.fillStyle = '#f2ddbe';
+  ctx.beginPath();
+  ctx.ellipse(-r * 0.28, -r * 0.3, r * 0.3, r * 0.16, -0.5, 0, TAU);
+  ctx.fill();
   ctx.restore();
 }
 
