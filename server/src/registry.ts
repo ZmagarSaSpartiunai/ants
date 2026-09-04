@@ -116,6 +116,20 @@ export const GAMES: Game[] = [
     ages: [6, 99],
   },
   {
+    id: 'riddles',
+    title: 'Хто це?',
+    blurb: 'Слухай запитання і торкнись картинки. Читати не треба.',
+    icon: '❓',
+    path: '/riddles',
+    kind: 'bundle',
+    tier: 'free',
+    multiplayer: false,
+    cover: ['rgba(94, 184, 79, 0.4)', '#4e8c36', '#26461d'],
+    note: 'малюкам',
+    // Spoken questions, picture answers: nothing here needs reading.
+    ages: [2, 6],
+  },
+  {
     id: 'colour',
     title: 'Розмальовка',
     blurb: 'Обери фарбу і торкнись. Кольори називає голос.',
