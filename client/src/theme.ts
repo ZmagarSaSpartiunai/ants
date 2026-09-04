@@ -4,8 +4,6 @@
  * thing is squashed a little vertically. Keeping those three rules consistent
  * is most of what makes a flat canvas read as a diorama.
  */
-export const LIGHT_X = -0.38;
-export const LIGHT_Y = -0.45;
 /** How much circles are squashed to suggest a low camera. */
 export const TILT = 0.82;
 

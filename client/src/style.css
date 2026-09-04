@@ -47,6 +47,7 @@ canvas {
   pointer-events: none;
 }
 
+#hud[hidden] { display: none; }
 #hud > * { pointer-events: auto; }
 
 .pips { display: flex; gap: 6px; flex: 1; flex-wrap: wrap; }

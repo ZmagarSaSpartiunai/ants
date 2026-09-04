@@ -52,6 +52,12 @@ export class App {
   private readonly canvas = document.createElement('canvas');
   private readonly overlay = document.createElement('div');
   private readonly hud = document.createElement('div');
+  /** The part of the HUD that changes; the buttons beside it never do. */
+  private readonly pipsBox = document.createElement('div');
+  private readonly jawsBox = document.createElement('div');
+  private readonly menuBtn = document.createElement('button');
+  private readonly legendBtn = document.createElement('button');
+  private readonly fullBtn = document.createElement('button');
   private readonly toast = document.createElement('div');
   private readonly legend = document.createElement('div');
   private readonly renderer: Renderer;
@@ -125,6 +131,7 @@ export class App {
     });
 
     setLang(detectLang());
+    this.buildHud();
     loadSound();
     const fit = (): void => this.renderer.resize();
     window.addEventListener('resize', fit);
@@ -541,15 +548,62 @@ export class App {
     this.overlay.innerHTML = '';
   }
 
+  /**
+   * The HUD is built once and then only its numbers change.
+   *
+   * It used to be rebuilt with innerHTML on every frame the text differed, and
+   * the bite counter differs ten times a second -- so the button a finger had
+   * pressed was routinely torn out of the document before the finger came up,
+   * and no click was ever dispatched. The buttons looked alive and were dead.
+   */
+  private buildHud(): void {
+    this.pipsBox.className = 'pips';
+    this.jawsBox.className = 'pip urgent';
+    this.jawsBox.hidden = true;
+    // Fullscreen matters most on a phone, where the browser chrome eats a
+    // quarter of a board that is already small. iOS Safari has no such API, so
+    // the button only appears where it would actually work.
+    const canFull = !!document.documentElement.requestFullscreen;
+    this.legendBtn.className = 'icon-btn';
+    this.legendBtn.textContent = 'i';
+    this.fullBtn.className = 'icon-btn';
+    this.fullBtn.textContent = '⛶';
+    this.fullBtn.hidden = !canFull;
+
+    this.hud.append(this.pipsBox, this.jawsBox, this.legendBtn, this.fullBtn, this.menuBtn);
+    this.labelHud();
+
+    this.menuBtn.addEventListener('click', () => {
+      this.screen = 'menu';
+      this.render();
+    });
+    this.legendBtn.addEventListener('click', () => {
+      this.legend.classList.toggle('open');
+    });
+    this.fullBtn.addEventListener('click', () => {
+      if (document.fullscreenElement) void document.exitFullscreen();
+      else void document.documentElement.requestFullscreen().catch(() => undefined);
+    });
+  }
+
+  /** Language can change under a HUD that is no longer rebuilt from scratch. */
+  private labelHud(): void {
+    this.menuBtn.textContent = t('menu');
+    this.legendBtn.title = t('legend');
+    this.fullBtn.title = t('fullscreen');
+    this.jawsBox.title = t('jaws');
+  }
+
   private drawHud(): void {
     const s = this.state;
     if (!s) return;
     if (this.screen !== 'game' && this.screen !== 'over') {
-      this.hud.innerHTML = '';
+      this.hud.hidden = true;
       this.legend.hidden = true;
 
       return;
     }
+    this.hud.hidden = false;
     const strength = s.players.map((p) =>
       s.nodes.reduce((acc, n) => (n.owner === p.id ? acc + n.count : acc), 0),
     );
@@ -576,34 +630,12 @@ export class App {
     // No clock and no trail counter: a match ends when someone has taken the
     // board, and the trail limit lives on each node as dots, where it can
     // actually be acted on.
-    // Fullscreen matters most on a phone, where the browser chrome eats a
-    // quarter of a board that is already small. iOS Safari has no such API, so
-    // the button only appears where it would actually work.
-    const canFull = !!document.documentElement.requestFullscreen;
+    if (this.pipsBox.innerHTML !== pips) this.pipsBox.innerHTML = pips;
     // The wait between bites belongs up here: it is invisible on the board, and
     // without it a held finger simply does nothing for no apparent reason.
     const wait = chewReadyIn(s, this.youId) / 20;
-    const jaws = wait > 0 ? `<div class="pip urgent" title="${t('jaws')}">✂ ${wait.toFixed(1)}</div>` : '';
-    const html =
-      `<div class="pips">${pips}</div>` +
-      jaws +
-      `<button id="legendBtn" class="icon-btn" title="${t('legend')}">i</button>` +
-      (canFull ? `<button id="fullBtn" class="icon-btn" title="${t('fullscreen')}">⛶</button>` : '') +
-      `<button id="menuBtn">${t('menu')}</button>`;
-    if (this.hud.innerHTML !== html) {
-      this.hud.innerHTML = html;
-      this.hud.querySelector('#menuBtn')!.addEventListener('click', () => {
-        this.screen = 'menu';
-        this.render();
-      });
-      this.hud.querySelector('#legendBtn')!.addEventListener('click', () => {
-        this.legend.classList.toggle('open');
-      });
-      this.hud.querySelector('#fullBtn')?.addEventListener('click', () => {
-        if (document.fullscreenElement) void document.exitFullscreen();
-        else void document.documentElement.requestFullscreen().catch(() => undefined);
-      });
-    }
+    this.jawsBox.hidden = wait <= 0;
+    if (wait > 0) this.jawsBox.textContent = `✂ ${wait.toFixed(1)}`;
   }
 
   private render(): void {
@@ -734,13 +766,13 @@ export class App {
         <label>${t('language')}</label><select id="lang">${langs}</select>
         <button id="snd">${t('sound')}: ${soundOn() ? '🔊' : '🔇'}</button>
       </div>
-      <div class="stack">${
-        // On the front door there is nothing to go back to, so the way out
-        // leads to the shelf instead.
-        this.demo
-          ? `<a class="quit" href="/">${t('allGames')}</a>`
-          : `<button id="close">${t('back')}</button>`
-      }</div>
+      <div class="stack">
+        ${this.demo ? '' : `<button id="close">${t('back')}</button>`}
+        <!-- The shelf is reachable from inside a match too. Hiding it once a
+             game had started left the other games with no way in short of
+             editing the address bar. -->
+        <a class="quit" href="/">${t('allGames')}</a>
+      </div>
     `);
 
     p.querySelector('#pc')!.addEventListener('click', (e) => {
@@ -778,6 +810,7 @@ export class App {
     sel.value = document.documentElement.lang;
     sel.addEventListener('change', () => {
       setLang(sel.value);
+      this.labelHud();
       this.drawLegend();
         this.showMenu();
     });

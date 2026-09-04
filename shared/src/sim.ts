@@ -95,28 +95,6 @@ function buildGame(seed: number, playerCount: number, dry: boolean): GameState {
   };
 }
 
-export function cloneState(s: GameState): GameState {
-  return {
-    tick: s.tick,
-    rng: s.rng,
-    nodes: s.nodes.map((n) => ({ ...n })),
-    trails: s.trails.map((t) => ({ ...t })),
-    packets: s.packets.map((p) => ({ ...p })),
-    players: s.players.map((p) => ({ ...p })),
-    supplied: s.supplied.slice(),
-    severed: s.severed.map((x) => ({ ...x })),
-    // Water never changes during a match, so the same array is shared.
-    rivers: s.rivers,
-    nextTrailId: s.nextTrailId,
-    over: s.over,
-    winner: s.winner,
-  };
-}
-
-export function nodeById(s: GameState, id: number): GameNode | undefined {
-  return s.nodes[id];
-}
-
 export function trailById(s: GameState, id: number): Trail | undefined {
   return s.trails.find((t) => t.id === id);
 }
