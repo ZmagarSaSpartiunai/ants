@@ -1,0 +1,112 @@
+/* A room with a patient in it, and a shelf of things underneath. */
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  background: #cfe4e8;
+  color: #33474d;
+  font: 16px/1.4 system-ui, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+main {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: max(8px, env(safe-area-inset-top)) 8px 10px;
+}
+.stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #eef7f2;
+  box-shadow: 0 5px 12px rgba(30, 60, 60, 0.2), 0 22px 46px -22px rgba(20, 50, 50, 0.7);
+}
+canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+.dots {
+  position: absolute;
+  top: 12px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 7px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.75);
+}
+.dot {
+  width: 13px; height: 13px; border-radius: 50%;
+  background: rgba(51, 71, 77, 0.2);
+}
+.dot.done { background: #5eb84f; }
+.dot.now { background: #f2b429; transform: scale(1.25); }
+
+/* The shelf. Eight things, big enough for a small finger. */
+.tray {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+}
+.tool {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  border: 3px solid rgba(255, 255, 255, 0.9);
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 3px 0 #a9c4c9;
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s, border-color 0.1s;
+}
+.tool canvas { width: 100%; height: auto; }
+.tool[aria-pressed="true"] {
+  transform: translateY(-4px);
+  border-color: #5eb84f;
+  box-shadow: 0 5px 0 #3f8a34;
+}
+.tool:active { transform: translateY(2px); box-shadow: none; }
+@media (max-width: 560px) { .tray { grid-template-columns: repeat(4, 1fr); } }
+
+.panel {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+  padding: 20px;
+  background: rgba(24, 56, 60, 0.72);
+  color: #fff;
+  backdrop-filter: blur(3px);
+}
+.panel[hidden] { display: none; }
+.face { margin: 0; font-size: clamp(44px, 10vw, 84px); line-height: 1; }
+.title { margin: 0; font-size: clamp(30px, 7vw, 56px); font-weight: 800; text-shadow: 0 3px 0 rgba(0, 0, 0, 0.35); }
+.sub { margin: 0 0 8px; font-size: clamp(14px, 2.6vw, 19px); opacity: 0.92; }
+
+button, .round { font: inherit; cursor: pointer; border: 0; border-radius: 999px; text-decoration: none; }
+#play, #again {
+  padding: 16px 46px;
+  font-size: clamp(20px, 4vw, 28px);
+  font-weight: 800;
+  color: #23494c;
+  background: linear-gradient(#ffe27a, #f2b429);
+  box-shadow: 0 5px 0 #b8811a, 0 12px 22px -8px rgba(0, 0, 0, 0.5);
+}
+#play:active, #again:active { transform: translateY(3px); box-shadow: 0 2px 0 #b8811a; }
+.round {
+  position: absolute;
+  top: 12px;
+  display: grid; place-items: center;
+  width: 40px; height: 40px;
+  font-size: 17px;
+  color: #33474d;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 2px 5px rgba(30, 60, 60, 0.25);
+}
+.back { left: 12px; }
+.snd { right: 12px; }

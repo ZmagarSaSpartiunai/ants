@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#dff0f4">
+<meta name="robots" content="noindex, nofollow">
+<title>Лікарня</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%A9%BA%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+<main>
+  <div class="stage">
+    <canvas id="room"></canvas>
+    <a class="round back" href="/">←</a>
+    <div class="dots" id="dots"></div>
+    <button id="sound" class="round snd" type="button" title="Звук">🔊</button>
+    <div id="start" class="panel">
+      <p class="face">🩺</p>
+      <p class="title">Лікарня</p>
+      <p class="sub">Візьми щось із полички<br>і торкнись там, де болить.</p>
+      <button id="play" type="button">Грати</button>
+    </div>
+    <div id="done" class="panel" hidden>
+      <p class="face">💚</p>
+      <p class="title">Усі здорові!</p>
+      <p class="sub" id="doneSub"></p>
+      <button id="again" type="button">Ще раз</button>
+    </div>
+  </div>
+  <div class="tray" id="tray"></div>
+</main>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

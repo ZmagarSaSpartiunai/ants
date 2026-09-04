@@ -116,6 +116,20 @@ export const GAMES: Game[] = [
     ages: [6, 99],
   },
   {
+    id: 'doctor',
+    title: 'Лікарня',
+    blurb: 'Прийшов пацієнт. Візьми щось із полички і полікуй.',
+    icon: '🩺',
+    path: '/doctor',
+    kind: 'bundle',
+    tier: 'free',
+    multiplayer: false,
+    cover: ['rgba(127, 184, 201, 0.42)', '#4d8fa0', '#22454f'],
+    note: 'малюкам',
+    // What is wrong is always drawn on the patient, so looking is the lesson.
+    ages: [2, 6],
+  },
+  {
     id: 'riddles',
     title: 'Хто це?',
     blurb: 'Слухай запитання і торкнись картинки. Читати не треба.',
