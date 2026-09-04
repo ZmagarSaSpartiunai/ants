@@ -1,6 +1,6 @@
-import { awakeSeats, createGame, FIELD_W, FLOOR_Y, PottyState, step, TOILET_X } from '@potty/shared';
+import { createGame, FIELD_W, FLOOR_Y, PottyState, SEATS, step, TOILET_X } from '@potty/shared';
 import { Fly, Look, Sparkle, View } from './render.js';
-import { chime, fanfare, flush, full, plop, say, setSound, soundOn, splat, unlock, warn } from './audio.js';
+import { boom, chime, fanfare, flush, full, groan, plop, say, sad, setSound, soundOn, splat, unlock, warn } from './audio.js';
 import './style.css';
 
 /**
@@ -14,7 +14,12 @@ import './style.css';
 
 const canvas = document.getElementById('field') as HTMLCanvasElement;
 const startPanel = document.getElementById('start') as HTMLDivElement;
+const donePanel = document.getElementById('done') as HTMLDivElement;
+const doneFace = document.getElementById('doneFace') as HTMLElement;
+const doneTitle = document.getElementById('doneTitle') as HTMLElement;
+const doneSub = document.getElementById('doneSub') as HTMLElement;
 const playBtn = document.getElementById('play') as HTMLButtonElement;
+const againBtn = document.getElementById('again') as HTMLButtonElement;
 const soundBtn = document.getElementById('sound') as HTMLButtonElement;
 
 const view = new View(canvas);
@@ -25,14 +30,13 @@ let lastX = aim;
 
 const look: Look = {
   time: 0,
-  bracing: [],
   gulp: 0,
   pop: 0,
   sparkles: [],
   flies: [],
   lean: 0,
-  arrived: new Map(),
-  starPop: 0,
+  booms: new Map(),
+  cheers: new Map(),
 };
 
 function point(clientX: number): void {
@@ -54,6 +58,35 @@ playBtn.addEventListener('click', () => {
   startPanel.hidden = true;
   running = true;
 });
+
+againBtn.addEventListener('click', () => {
+  state = createGame(Math.floor(Math.random() * 1e9));
+  look.sparkles.length = 0;
+  look.flies.length = 0;
+  look.booms.clear();
+  look.cheers.clear();
+  donePanel.hidden = true;
+  running = true;
+});
+
+/**
+ * @param won whether anybody was saved
+ * @param happy how many animals got their five
+ */
+function finish(won: boolean, happy: number): void {
+  running = false;
+  donePanel.hidden = false;
+  doneFace.textContent = won ? (happy === 4 ? '🎉' : '🙂') : '💩';
+  doneTitle.textContent = won ? (happy === 4 ? 'Усі задоволені!' : 'Майже!') : 'Ой-ой…';
+  doneSub.textContent = won
+    ? happy === 4
+      ? 'Кожен сходив по п’ять разів.'
+      : `Задоволених: ${happy} з 4. Наступного разу встигнеш до всіх.`
+    : 'Ніхто не дочекався. Спробуй ще — стеж за червоними мордочками.';
+  if (won && happy === 4) fanfare();
+  else if (won) chime();
+  else sad();
+}
 
 soundBtn.addEventListener('click', () => {
   setSound(!soundOn());
@@ -89,16 +122,26 @@ function frame(now: number): void {
 
   if (running) {
     for (const event of step(state, dt, aim)) {
-      if (event.t === 'brace') warn();
+      if (event.t === 'urge') warn();
       else if (event.t === 'catch') {
         look.gulp = 1;
         look.pop = 1;
         plop();
         // The number said out loud is how many are in the pot, one to four --
-        // a count a child of three can follow and join in with. Counting the
-        // running total to thirty-seven teaches nobody anything.
+        // a count a child of three can follow and join in with.
         say(event.held);
         burst(state.pottyX, FLOOR_Y - 30, 14, '#ffe27a');
+      } else if (event.t === 'happy') {
+        look.cheers.set(event.seat, 0);
+        chime();
+        burst(SEATS[event.seat].x, SEATS[event.seat].y - 30, 18, '#9be8a6');
+      } else if (event.t === 'angry') {
+        groan();
+        burst(SEATS[event.seat].x, SEATS[event.seat].y, 8, '#ef6f7a');
+      } else if (event.t === 'boom') {
+        look.booms.set(event.seat, 0);
+        boom();
+        burst(SEATS[event.seat].x, SEATS[event.seat].y, 34, '#a9713c');
       } else if (event.t === 'full') {
         full();
       } else if (event.t === 'overflow') {
@@ -106,19 +149,8 @@ function frame(now: number): void {
         burst(event.x, FLOOR_Y - 20, 10, '#a9713c');
       } else if (event.t === 'flush') {
         flush();
-      } else if (event.t === 'star') {
-        look.starPop = 1;
-        chime();
-        burst(TOILET_X, FLOOR_Y - 120, 20, '#ffd451');
-      } else if (event.t === 'level') {
-        fanfare();
-        burst(FIELD_W / 2, 130, 30, '#9be8a6');
-        // Whoever has just woken gets an entrance.
-        for (const seat of awakeSeats(event.level)) {
-          if (!look.arrived.has(seat) && !awakeSeats(event.level - 1).includes(seat)) {
-            look.arrived.set(seat, 0);
-          }
-        }
+      } else if (event.t === 'over') {
+        finish(event.won, event.happy);
       } else if (event.t === 'miss') {
         splat();
         burst(event.x, FLOOR_Y + 8, 8, '#a9713c');
@@ -130,19 +162,21 @@ function frame(now: number): void {
           home: { x: event.x, y: FLOOR_Y + 6 },
           phase: Math.random() * 6,
         });
-        if (look.flies.length > 8) look.flies.shift();
+        if (look.flies.length > 10) look.flies.shift();
       }
     }
   }
 
-  look.bracing = state.bracing;
   look.gulp = Math.max(0, look.gulp - dt * 2.6);
   look.pop = Math.max(0, look.pop - dt * 3.2);
-  look.starPop = Math.max(0, look.starPop - dt * 2);
-  for (const [seat, t] of look.arrived) {
-    const next = t + dt / 0.7;
-    if (next >= 1) look.arrived.delete(seat);
-    else look.arrived.set(seat, next);
+  for (const [seat, t] of look.booms) {
+    if (t > 0.9) look.booms.delete(seat);
+    else look.booms.set(seat, t + dt);
+  }
+  for (const [seat, t] of look.cheers) {
+    const nextT = t + dt / 0.8;
+    if (nextT >= 1) look.cheers.delete(seat);
+    else look.cheers.set(seat, nextT);
   }
   // The lean is taken from how far the potty actually travelled, so it can
   // never disagree with the movement the eye is watching.

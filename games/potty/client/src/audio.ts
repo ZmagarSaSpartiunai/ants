@@ -134,7 +134,34 @@ export function chime(): void {
   window.setTimeout(() => tone(1319, 0.22, 'triangle', 0.16), 90);
 }
 
-/** A level finished. */
+/** Somebody was left waiting: a short, unhappy slide downwards. */
+export function groan(): void {
+  if (!on || !ctx) return;
+  const osc = ctx.createOscillator();
+  const amp = ctx.createGain();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(300, ctx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(150, ctx.currentTime + 0.35);
+  amp.gain.setValueAtTime(0.1, ctx.currentTime);
+  amp.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
+  osc.connect(amp).connect(ctx.destination);
+  osc.start();
+  osc.stop(ctx.currentTime + 0.4);
+}
+
+/** One animal has burst. Low, short and blunt. */
+export function boom(): void {
+  tone(90, 0.35, 'sawtooth', 0.22);
+  window.setTimeout(() => tone(60, 0.3, 'triangle', 0.16), 70);
+}
+
+/** Everybody burst. */
+export function sad(): void {
+  const notes = [440, 392, 330, 262];
+  notes.forEach((f, i) => window.setTimeout(() => tone(f, 0.35, 'triangle', 0.16), i * 190));
+}
+
+/** Everybody is happy. */
 export function fanfare(): void {
   const notes = [523, 659, 784, 1047];
   notes.forEach((f, i) => window.setTimeout(() => tone(f, 0.22, 'triangle', 0.2), i * 110));

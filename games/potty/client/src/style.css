@@ -62,7 +62,8 @@ button, .back {
   border: 0;
   text-decoration: none;
 }
-#play {
+.face { margin: 0; font-size: clamp(44px, 10vw, 84px); line-height: 1; }
+#play, #again {
   padding: 16px 46px;
   font-size: clamp(20px, 4vw, 28px);
   font-weight: 800;
@@ -70,7 +71,7 @@ button, .back {
   background: linear-gradient(#ffe27a, #f2b429);
   box-shadow: 0 5px 0 #b8811a, 0 12px 22px -8px rgba(0, 0, 0, 0.5);
 }
-#play:active { transform: translateY(3px); box-shadow: 0 2px 0 #b8811a; }
+#play:active, #again:active { transform: translateY(3px); box-shadow: 0 2px 0 #b8811a; }
 
 .sound, .back {
   position: absolute;

@@ -1,20 +1,21 @@
 import {
+  Animal,
   AnimalId,
   ANIMALS,
-  awakeSeats,
   Drop,
   FIELD_H,
   FIELD_W,
   FLOOR_Y,
   FLUSH_TIME,
+  GOAL,
   POTTY_CAP,
   POTTY_W,
   PottyState,
   SEATS,
   Splat,
-  STARS_PER_LEVEL,
   TOILET_W,
   TOILET_X,
+  WAIT,
 } from '@potty/shared';
 
 /**
@@ -60,8 +61,10 @@ export interface Fly {
 /** What the client is feeling, handed in each frame. */
 export interface Look {
   time: number;
-  /** Which seats are squirming and how far through each is. */
-  bracing: { seat: number; t: number }[];
+  /** Seats that have just burst, and how long ago. */
+  booms: Map<number, number>;
+  /** Seats that have just had their fifth, and how long ago. */
+  cheers: Map<number, number>;
   /** How hard the potty is celebrating, 1 fading to 0. */
   gulp: number;
   /** The big number's pop, 1 fading to 0. */
@@ -70,10 +73,6 @@ export interface Look {
   flies: Fly[];
   /** Which way the potty is travelling, for the lean. */
   lean: number;
-  /** Seats that have just woken, and how long ago, so they arrive rather than blink in. */
-  arrived: Map<number, number>;
-  /** The star that has just been earned, 1 fading to 0. */
-  starPop: number;
 }
 
 export class View {
@@ -132,17 +131,20 @@ export class View {
 
     drawToilet(ctx, s.held >= POTTY_CAP, s.flushing, look.time);
 
-    for (const i of awakeSeats(s.level)) {
-      const b = s.bracing.find((x) => x.seat === i);
-      const grow = look.arrived.get(i);
-      drawAnimal(ctx, ANIMALS[i % ANIMALS.length], SEATS[i], b ? b.t : 0, look.time, i, grow);
+    for (const a of s.animals) {
+      const boom = look.booms.get(a.seat);
+      if (a.alive) {
+        drawAnimal(ctx, ANIMALS[a.seat % ANIMALS.length], SEATS[a.seat], a, look.time, look.cheers.get(a.seat));
+      }
+      drawProgress(ctx, SEATS[a.seat], a);
+      if (a.alive && a.urge !== null) drawAsk(ctx, SEATS[a.seat], a, look.time);
+      if (boom !== undefined) drawBoom(ctx, SEATS[a.seat], boom);
     }
 
     for (const drop of s.drops) drawDrop(ctx, drop, look.time);
     drawPotty(ctx, s, look);
     if (s.flushing > 0) drawPour(ctx, s, look.time);
     for (const sp of look.sparkles) drawSparkle(ctx, sp);
-    drawStars(ctx, s.stars, look.starPop);
     if (s.held > 0 && s.flushing <= 0) drawScore(ctx, s.held, look.pop);
 
     ctx.restore();
@@ -267,27 +269,25 @@ function drawAnimal(
   ctx: CanvasRenderingContext2D,
   id: AnimalId,
   seat: { x: number; y: number },
-  brace: number,
+  a: Animal,
   time: number,
-  slot: number,
-  arrived?: number,
+  cheer?: number,
 ): void {
   const coat = COAT[id];
-  // Squirming: it presses down, shivers, and the shiver gets faster.
-  const push = brace > 0 ? Math.min(1, brace / 0.9) : 0;
-  const shake = push > 0 ? Math.sin(time * (16 + push * 26)) * push * 2.4 : 0;
+  const slot = a.seat;
+  // How desperate it is: nothing at all until it asks, then rising as its own
+  // clock runs down. The child's only warning is this, so it has to be legible
+  // from across a room -- and it has to grow, not merely be on.
+  const wait = WAIT[Math.min(WAIT.length - 1, a.strikes)];
+  const push = a.urge === null ? 0 : Math.max(0, Math.min(1, 1 - a.urge / wait));
+  const shake = push > 0 ? Math.sin(time * (16 + push * 34)) * push * 3.2 : 0;
   const breathe = Math.sin(time * 1.6 + slot * 1.9) * 0.9;
 
   ctx.save();
   ctx.translate(seat.x + shake, seat.y + push * 4 + breathe);
-  if (arrived !== undefined && arrived < 1) {
-    // Drops in and overshoots, so a new animal is an event and not a change
-    // the child finds already made.
-    const p = arrived;
-    const ease = 1 - Math.pow(1 - p, 3);
-    ctx.translate(0, -70 * (1 - ease));
-    const wobble = 1 + Math.sin(p * Math.PI * 2.2) * 0.18 * (1 - p);
-    ctx.scale(wobble, 2 - wobble);
+  if (cheer !== undefined && cheer < 1) {
+    // Its fifth: it hops. A goal reached with no reaction is not a goal.
+    ctx.translate(0, -Math.abs(Math.sin(cheer * Math.PI * 2)) * 16);
   }
 
   ctx.fillStyle = 'rgba(70,50,30,0.22)';
@@ -329,7 +329,114 @@ function drawAnimal(
     ctx.stroke();
   }
 
-  drawHead(ctx, id, coat, push, time, slot);
+  drawHead(ctx, id, coat, push, time, slot, a.strikes > 0);
+  ctx.restore();
+}
+
+/**
+ * The five dots over each animal: how many times it has been.
+ *
+ * The goal has to be visible on the animal it belongs to. A single counter
+ * somewhere else tells a child who cannot read nothing about which animal is
+ * nearly done and which has been ignored all game.
+ *
+ * @param ctx where to draw
+ * @param seat where the animal sits
+ * @param a the animal
+ */
+function drawProgress(ctx: CanvasRenderingContext2D, seat: { x: number; y: number }, a: Animal): void {
+  const gap = 13;
+  const left = seat.x - ((GOAL - 1) * gap) / 2;
+  for (let i = 0; i < GOAL; i++) {
+    const got = i < a.pooped;
+    ctx.beginPath();
+    ctx.arc(left + i * gap, seat.y - 46, 5, 0, TAU);
+    ctx.fillStyle = !a.alive ? 'rgba(90,70,60,0.35)' : got ? '#7bc86c' : 'rgba(255,255,255,0.55)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(58,40,32,0.55)';
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+  }
+}
+
+/**
+ * The bubble over whoever is asking: who, and how long is left.
+ *
+ * The squirming alone was not enough. It grows as the clock runs down, so at
+ * the start of an urge -- exactly when there is still time to get there -- an
+ * animal that is asking looks almost like one that is not. This says it from
+ * the first instant, without a word to read.
+ *
+ * @param ctx where to draw
+ * @param seat where the animal sits
+ * @param a the animal
+ * @param time seconds, for the nudge
+ */
+function drawAsk(
+  ctx: CanvasRenderingContext2D,
+  seat: { x: number; y: number },
+  a: Animal,
+  time: number,
+): void {
+  const wait = WAIT[Math.min(WAIT.length - 1, a.strikes)];
+  const left = Math.max(0, Math.min(1, (a.urge ?? 0) / wait));
+  const bob = Math.sin(time * 5) * 2;
+  ctx.save();
+  ctx.translate(seat.x, seat.y - 78 + bob);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.94)';
+  ctx.strokeStyle = 'rgba(58,40,32,0.75)';
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.arc(0, 0, 18, 0, TAU);
+  ctx.fill();
+  ctx.stroke();
+  // The little tail pointing at whoever is asking.
+  ctx.beginPath();
+  ctx.moveTo(-6, 14);
+  ctx.lineTo(0, 24);
+  ctx.lineTo(6, 14);
+  ctx.closePath();
+  ctx.fill();
+
+  // The clock, draining anticlockwise from the top and reddening as it goes.
+  ctx.strokeStyle = left > 0.55 ? '#7bc86c' : left > 0.28 ? '#f2b429' : '#e4574d';
+  ctx.lineWidth = 5;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.arc(0, 0, 22, -Math.PI / 2, -Math.PI / 2 + left * TAU);
+  ctx.stroke();
+
+  ctx.save();
+  ctx.scale(0.62, 0.62);
+  poo(ctx, 1);
+  ctx.restore();
+  ctx.restore();
+}
+
+/**
+ * @param ctx where to draw
+ * @param seat where the animal was
+ * @param t seconds since it burst
+ */
+function drawBoom(ctx: CanvasRenderingContext2D, seat: { x: number; y: number }, t: number): void {
+  const p = Math.min(1, t / 0.75);
+  ctx.save();
+  ctx.translate(seat.x, seat.y);
+  ctx.globalAlpha = 1 - p;
+  // A ring going out, and smoke going up: something happened here and it is over.
+  ctx.strokeStyle = '#8a5a2c';
+  ctx.lineWidth = 7 * (1 - p);
+  ctx.beginPath();
+  ctx.arc(0, 0, 14 + p * 70, 0, TAU);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(120,96,74,0.55)';
+  for (let i = 0; i < 6; i++) {
+    const a = (i * TAU) / 6 + p;
+    ctx.beginPath();
+    ctx.arc(Math.cos(a) * (18 + p * 40), Math.sin(a) * (14 + p * 30) - p * 26, 11 * (1 - p * 0.5), 0, TAU);
+    ctx.fill();
+  }
   ctx.restore();
 }
 
@@ -340,6 +447,7 @@ function drawHead(
   push: number,
   time: number,
   slot: number,
+  cross: boolean,
 ): void {
   ctx.save();
   ctx.translate(0, -18 - push * 2);
@@ -458,8 +566,11 @@ function drawHead(
   }
 
   // Cheeks go red as it strains. Nothing else says "any second now" so fast.
-  if (push > 0.15) {
-    ctx.globalAlpha = Math.min(0.85, push);
+  // Once it has been left waiting even once, the whole face stays flushed --
+  // that is the standing warning that this one is running out of chances.
+  const heat = cross ? Math.max(0.55, push) : push;
+  if (heat > 0.15) {
+    ctx.globalAlpha = Math.min(0.85, heat);
     ctx.fillStyle = '#ef6f7a';
     for (const sx of [-1, 1]) {
       ctx.beginPath();
@@ -467,6 +578,18 @@ function drawHead(
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+  }
+  if (cross) {
+    // Cross eyebrows, so the warning survives a colour-blind eye and a bad screen.
+    ctx.strokeStyle = '#8c2f38';
+    ctx.lineWidth = 2.6;
+    ctx.lineCap = 'round';
+    for (const sx of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(sx * 3, -10);
+      ctx.lineTo(sx * 12, -13.5);
+      ctx.stroke();
+    }
   }
   ctx.restore();
 }
@@ -523,7 +646,7 @@ function poo(ctx: CanvasRenderingContext2D, k: number): void {
 
 function drawSplat(ctx: CanvasRenderingContext2D, splat: Splat): void {
   ctx.save();
-  ctx.translate(splat.x, FLOOR_Y + 12);
+  ctx.translate(splat.x, splat.y ?? FLOOR_Y + 12);
   ctx.rotate((splat.seed % 7) * 0.3);
   ctx.fillStyle = '#7a4f24';
   ctx.beginPath();
@@ -819,34 +942,6 @@ function drawToilet(
     ctx.stroke();
   }
   ctx.restore();
-}
-
-/**
- * The row of stars: the only goal in the game, and the only thing on screen
- * that says a level is going somewhere.
- *
- * @param ctx where to draw
- * @param stars how many are earned
- * @param pop how recently the last one landed, 1 fading to 0
- */
-function drawStars(ctx: CanvasRenderingContext2D, stars: number, pop: number): void {
-  // Top right, in empty sky. Under the number they landed across the animals'
-  // faces, and the faces are what the child has to be watching.
-  const gap = 34;
-  const left = FIELD_W - 30 - (STARS_PER_LEVEL - 1) * gap;
-  for (let i = 0; i < STARS_PER_LEVEL; i++) {
-    const got = i < stars;
-    const grow = got && i === stars - 1 ? pop : 0;
-    ctx.save();
-    ctx.translate(left + i * gap, 46);
-    ctx.scale(1 + grow * 0.6, 1 + grow * 0.6);
-    ctx.fillStyle = got ? '#ffd451' : 'rgba(255,255,255,0.32)';
-    ctx.strokeStyle = got ? 'rgba(120,80,10,0.6)' : 'rgba(70,90,100,0.3)';
-    ctx.lineWidth = 2.2;
-    star(ctx, 0, 0, 13);
-    ctx.stroke();
-    ctx.restore();
-  }
 }
 
 function drawSparkle(ctx: CanvasRenderingContext2D, sp: Sparkle): void {
