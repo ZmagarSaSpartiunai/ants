@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GAMES, findGame, shelfFor, socketPath } from './registry.js';
+import { AGE_BANDS, bandFits, GAMES, findGame, shelfFor, socketPath } from './registry.js';
 
 test('every game has a unique id and a unique path', () => {
   const ids = new Set(GAMES.map((g) => g.id));
@@ -54,5 +54,34 @@ test('a paid game stays on the shelf so it can be seen and wanted', () => {
   const paid = GAMES.filter((g) => g.tier === 'paid');
   for (const game of paid) {
     assert.ok(shelfFor(game.shelf).some((g) => g.id === game.id), `${game.id} vanished from its shelf`);
+  }
+});
+
+test('every game says who it is for, and says it sanely', () => {
+  for (const game of GAMES) {
+    const [from, to] = game.ages;
+    assert.ok(Number.isInteger(from) && Number.isInteger(to), `${game.id}: ages must be whole years`);
+    assert.ok(from >= 0 && from <= to, `${game.id}: nonsense age range ${from}..${to}`);
+  }
+});
+
+test('the age bands cover every year without a gap', () => {
+  // A gap would make a game invisible under every filter, which reads on the
+  // shelf exactly like a game that failed to build.
+  for (let age = 0; age <= 99; age++) {
+    assert.ok(AGE_BANDS.some((b) => age >= b.from && age <= b.to), `nobody covers age ${age}`);
+  }
+});
+
+test('a game shows under a band when the two overlap at all', () => {
+  const six = AGE_BANDS.find((b) => b.id === 'kids')!;
+  assert.ok(bandFits({ ...GAMES[0], ages: [6, 9] }, six));
+  assert.ok(bandFits({ ...GAMES[0], ages: [4, 7] }, six), 'an overlap at the edge still counts');
+  assert.ok(!bandFits({ ...GAMES[0], ages: [10, 99] }, six));
+});
+
+test('every game is reachable from at least one band', () => {
+  for (const game of GAMES) {
+    assert.ok(AGE_BANDS.some((b) => bandFits(game, b)), `${game.id} falls through every filter`);
   }
 });

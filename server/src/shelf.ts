@@ -1,4 +1,4 @@
-import { Game } from './registry.js';
+import { AGE_BANDS, Game } from './registry.js';
 
 /**
  * The shelf page, built from the catalogue.
@@ -18,6 +18,16 @@ function esc(raw: string): string {
 }
 
 /**
+ * @param game the card
+ * @return the age as a parent reads it, with no invented upper bound
+ */
+function ageLabel(game: Game): string {
+  const [from, to] = game.ages;
+
+  return to >= 99 ? `${from}+` : `${from}–${to}`;
+}
+
+/**
  * @param game the card to draw
  * @return one card of markup
  */
@@ -33,13 +43,19 @@ function card(game: Game): string {
         <h2>${esc(game.title)}</h2>
         <p>${esc(game.blurb)}</p>
         <span class="tag">${locked ? 'за підпискою' : esc(game.note)}</span>
+        <span class="tag age">${esc(ageLabel(game))} р.</span>
       </div>`;
 
   // A locked card is deliberately not a link: there is nothing behind it yet,
   // and a dead link reads as a broken game rather than a closed door.
+  // The band is decided in the browser from these two numbers: filtering on
+  // the server would mean a round trip and a cache entry per band, for a page
+  // whose whole content is already here.
+  const age = `data-from="${game.ages[0]}" data-to="${game.ages[1]}"`;
+
   return locked
-    ? `    <div class="game locked">${inner}\n    </div>`
-    : `    <a class="game" href="${esc(game.path)}/">${inner}\n    </a>`;
+    ? `    <div class="game locked" ${age}>${inner}\n    </div>`
+    : `    <a class="game" href="${esc(game.path)}/" ${age}>${inner}\n    </a>`;
 }
 
 /**
@@ -134,6 +150,20 @@ export function renderShelf(shelf: string | null, games: Game[]): string {
     background: rgba(240, 180, 41, 0.16);
     color: #ffd57a;
   }
+  .tag.age { background: rgba(140, 190, 220, 0.16); color: #a9d3ea; margin-left: 6px; }
+
+  .bands { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; }
+  .band {
+    font: inherit; font-size: 14px; cursor: pointer;
+    padding: 7px 14px; border-radius: 999px;
+    color: #cfc6b6; background: rgba(26, 30, 20, 0.9);
+    border: 1px solid rgba(240, 180, 41, 0.2);
+    transition: color 0.14s, border-color 0.14s, background 0.14s;
+  }
+  .band:hover { border-color: rgba(240, 180, 41, 0.45); }
+  .band.on { color: #141a10; background: #f0b429; border-color: #f0b429; }
+  .game[hidden] { display: none; }
+  .empty { color: #9d9384; }
   footer { margin-top: 26px; color: #6f6a60; font-size: 13px; }
   @media (prefers-reduced-motion: reduce) { .game { transition: none; } }
 </style>
@@ -144,12 +174,51 @@ export function renderShelf(shelf: string | null, games: Game[]): string {
   <h1>${esc(title)}</h1>
   <p class="sub">Робочі збірки. Тут вони живуть, поки не поїдуть на портали.</p>
 
-  <div class="shelf">
+  <div class="bands" id="bands">
+    <button class="band on" data-band="all">Усі</button>
+${AGE_BANDS.map((b) => `    <button class="band" data-band="${esc(b.id)}" data-from="${b.from}" data-to="${b.to}">${esc(b.label)}</button>`).join('\n')}
+  </div>
+
+  <div class="shelf" id="shelf">
 ${games.map(card).join('\n')}
   </div>
+  <p class="empty" id="empty" hidden>Для цього віку тут поки порожньо.</p>
 
   <footer>Усе працює і з телефона.</footer>
 </main>
+<script>
+  // Without this script every card is visible, which is the right thing to
+  // fail to: a filter that breaks must not hide the catalogue.
+  (function () {
+    var bands = document.getElementById('bands');
+    var cards = [].slice.call(document.querySelectorAll('.game'));
+    var empty = document.getElementById('empty');
+    var KEY = 'games.band';
+
+    function apply(id) {
+      var chip = bands.querySelector('[data-band="' + id + '"]') || bands.firstElementChild;
+      var from = +chip.dataset.from, to = +chip.dataset.to;
+      var any = false;
+      [].forEach.call(bands.children, function (b) { b.classList.toggle('on', b === chip); });
+      cards.forEach(function (c) {
+        // Overlap, the same rule the server uses.
+        var show = chip.dataset.band === 'all' || (+c.dataset.from <= to && +c.dataset.to >= from);
+        c.hidden = !show;
+        if (show) any = true;
+      });
+      empty.hidden = any;
+      try { localStorage.setItem(KEY, chip.dataset.band); } catch (e) { /* private mode */ }
+    }
+
+    bands.addEventListener('click', function (e) {
+      var chip = e.target.closest('.band');
+      if (chip) apply(chip.dataset.band);
+    });
+    var saved = 'all';
+    try { saved = localStorage.getItem(KEY) || 'all'; } catch (e) { /* private mode */ }
+    apply(saved);
+  })();
+</script>
 </body>
 </html>
 `;

@@ -43,6 +43,41 @@ export interface Game {
   cover: [string, string, string];
   /** The small pill on the card. */
   note: string;
+  /** Whom the game is for, in whole years, inclusive at both ends. */
+  ages: [number, number];
+}
+
+/** One filter chip on the shelf. */
+export interface AgeBand {
+  id: string;
+  label: string;
+  from: number;
+  to: number;
+}
+
+/**
+ * Three bands, because a parent picking for a child thinks in three groups:
+ * before reading, reading, and old enough not to be called little any more.
+ * They cover every year with no gap -- a game nobody's filter can reach looks
+ * exactly like a game that failed to build.
+ */
+export const AGE_BANDS: AgeBand[] = [
+  { id: 'tiny', label: 'Малюкам · до 6', from: 0, to: 5 },
+  { id: 'kids', label: '6–9 років', from: 6, to: 9 },
+  { id: 'big', label: '10 і старші', from: 10, to: 99 },
+];
+
+/**
+ * Overlap, not containment: a game for 4..7 belongs on both the little shelf
+ * and the school one, and a parent who cannot find it under either would
+ * conclude it is missing.
+ *
+ * @param game the card
+ * @param band the chosen filter
+ * @return whether the card shows under it
+ */
+export function bandFits(game: Game, band: AgeBand): boolean {
+  return game.ages[0] <= band.to && game.ages[1] >= band.from;
 }
 
 export const GAMES: Game[] = [
@@ -58,6 +93,8 @@ export const GAMES: Game[] = [
     multiplayer: true,
     cover: ['rgba(150, 200, 110, 0.38)', '#3f6a31', '#24401d'],
     note: 'грається',
+    // Trails, supply and timing: younger than eight and the board is just colours.
+    ages: [8, 99],
   },
   {
     id: 'luna',
@@ -72,6 +109,7 @@ export const GAMES: Game[] = [
     rootEnv: 'LUNA_ROOT',
     cover: ['rgba(196, 168, 232, 0.38)', '#241d33', '#100d18'],
     note: 'прототип',
+    ages: [6, 99],
   },
   {
     id: 'kaka',
@@ -85,6 +123,7 @@ export const GAMES: Game[] = [
     multiplayer: false,
     cover: ['rgba(214, 160, 92, 0.34)', '#5a4326', '#2e2113'],
     note: 'полиця',
+    ages: [5, 12],
   },
   {
     id: 'pigeons',
@@ -98,6 +137,7 @@ export const GAMES: Game[] = [
     multiplayer: true,
     cover: ['rgba(140, 190, 220, 0.34)', '#3d5a70', '#1d2b38'],
     note: 'у роботі',
+    ages: [6, 12],
   },
 ];
 
